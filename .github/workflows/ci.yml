@@ -1,0 +1,64 @@
+name: Kdenlive pilot against PostProject main
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      postproject_ref:
+        description: PostProject revision to build against
+        required: false
+        type: string
+        default: main
+  workflow_call:
+    inputs:
+      postproject_ref:
+        required: false
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  kdenlive:
+    name: Kdenlive ${{ matrix.postproject }} PostProject
+    runs-on: ubuntu-latest
+    # The pinned Kdenlive needs KF6 >= 6.21 and Qt >= 6.10, newer than any
+    # Ubuntu runner image provides.
+    container: archlinux:latest
+    strategy:
+      fail-fast: false
+      matrix:
+        postproject: [with, without]
+    steps:
+      - name: Install Kdenlive build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed git base-devel cmake ninja extra-cmake-modules rust
+          # Arch's own Kdenlive package lists its runtime libraries; the
+          # development files ship with them.
+          pacman -S --noconfirm --needed $(pacman -Si kdenlive | sed -n 's/^Depends On *: //p')
+      - uses: actions/checkout@v7
+        with:
+          repository: postproject-org/postproject-kdenlive
+      - uses: actions/checkout@v7
+        if: matrix.postproject == 'with'
+        with:
+          repository: postproject-org/postproject
+          ref: ${{ inputs.postproject_ref || 'main' }}
+          path: postproject
+      - name: Build and install PostProject
+        if: matrix.postproject == 'with'
+        run: |
+          cargo build --release --locked -p postproject-ffi --manifest-path postproject/Cargo.toml
+          cmake -S postproject -B postproject/target/package \
+            -DPOSTPROJECT_LIBRARY="$PWD/postproject/target/release/libpostproject.so" \
+            -DPOSTPROJECT_STATIC_LIBRARY="$PWD/postproject/target/release/libpostproject.a" \
+            -DCMAKE_INSTALL_PREFIX="$PWD/install"
+          cmake --install postproject/target/package
+      - name: Apply the patch series to the pinned Kdenlive
+        run: tools/checkout.sh
+      - name: Build
+        run: tools/build.sh ${{ matrix.postproject == 'with' && 'install' || 'none' }}
+      - name: Test
+        run: tools/test.sh
