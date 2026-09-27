@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Erich Seifert <dev@erichseifert.de>
+Date: Sun, 27 Sep 2026 14:34:33 +0200
+Subject: [PATCH 1/4] Find PostProject as an optional package
+
+WITH_POSTPROJECT (default ON) looks for an installed PostProject CMake
+package and defines HAVE_POSTPROJECT when it is found. Without it, no
+pilot code is compiled.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index c1eee7935..5e8f3c0e1 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -170,6 +170,18 @@ set_package_properties(OpenTimelineIO PROPERTIES
+     URL "http://opentimeline.io/"
+     PURPOSE "Required for OpenTimelineIO import and export, at least version 0.18.0 is highly recommended")
+ 
++# PostProject: experimental content-based relinking (https://postproject.org)
++option(WITH_POSTPROJECT "Relink missing clips by content through an installed PostProject package" ON)
++if(WITH_POSTPROJECT)
++    find_package(PostProject 0.4 CONFIG)
++    set_package_properties(PostProject PROPERTIES
++        DESCRIPTION "Media identity and relinking library"
++        URL "https://postproject.org"
++        TYPE OPTIONAL
++        PURPOSE "Experimental: relink missing clips by content through a PostProject sidecar")
++endif()
++set(HAVE_POSTPROJECT ${PostProject_FOUND})
++
+ # Windows
+ include(CheckIncludeFiles)
+ check_include_files(malloc.h HAVE_MALLOC_H)
+diff --git a/config-kdenlive.h.cmake b/config-kdenlive.h.cmake
+index 5775d1388..3d38ebcc5 100644
+--- a/config-kdenlive.h.cmake
++++ b/config-kdenlive.h.cmake
+@@ -13,5 +13,6 @@
+ 
+ #cmakedefine HAVE_MALLOC_H 1
+ #cmakedefine HAVE_PTHREAD_H 1
++#cmakedefine HAVE_POSTPROJECT 1
+ 
+ #endif

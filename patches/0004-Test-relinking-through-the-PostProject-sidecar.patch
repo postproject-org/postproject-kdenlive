@@ -1,0 +1,257 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Erich Seifert <dev@erichseifert.de>
+Date: Sun, 27 Sep 2026 14:34:34 +0200
+Subject: [PATCH 4/4] Test relinking through the PostProject sidecar
+
+Cover a renamed clip, a clip outside the project folder, a relink
+recorded on the next save, two identical copies, a candidate rejected
+by Kdenlive's hash, and a missing or unreadable sidecar.
+
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index e1a7c9bbb..a9fabe7bd 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -40,6 +40,9 @@ set(KdenliveTest_SOURCES
+     trimmingtest.cpp
+     utilstest.cpp
+ )
++if(HAVE_POSTPROJECT)
++    list(APPEND KdenliveTest_SOURCES postprojecttest.cpp)
++endif()
+ 
+ include(ECMAddTests)
+ 
+diff --git a/tests/postprojecttest.cpp b/tests/postprojecttest.cpp
+new file mode 100644
+index 000000000..a46939552
+--- /dev/null
++++ b/tests/postprojecttest.cpp
+@@ -0,0 +1,184 @@
++/*
++    SPDX-FileCopyrightText: 2026 Erich Seifert <dev@erichseifert.de>
++
++    SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
++*/
++#include "test_utils.hpp"
++// test specific headers
++#include "bin/projectclip.h"
++#include "doc/documentchecker.h"
++#include "doc/postprojectsidecar.h"
++#include "xml/xml.hpp"
++
++#include <QTemporaryDir>
++#include <QUuid>
++
++#include <postproject/postproject.hpp>
++
++namespace {
++
++const QString ControlUuid = QUuid::createUuidV5(QUuid(), QStringLiteral("postproject-pilot")).toString();
++
++// A clip larger than 1 MiB, so PostProject identifies it by a sampled fingerprint.
++const QString ClipSource = sourcesPath + QStringLiteral("/dataset/lots_of_audio_streams.mkv");
++
++QString kdenliveHash(const QString &path)
++{
++    return QString::fromLatin1(ProjectClip::calculateHash(path).first.toHex());
++}
++
++// The saved form of a project with one bin clip, as Kdenlive writes it.
++QDomDocument projectScene(const QString &root, const QString &resource, const QString &hash)
++{
++    const QString xml = QStringLiteral(R"(<?xml version="1.0" encoding="utf-8"?>
++<mlt LC_NUMERIC="C" producer="main_bin" root="%1" version="7.40.0">
++ <chain id="chain0" out="100">
++  <property name="resource">%2</property>
++  <property name="mlt_service">avformat-novalidate</property>
++  <property name="kdenlive:id">2</property>
++  <property name="kdenlive:clipname">interview</property>
++  <property name="kdenlive:control_uuid">%3</property>
++  <property name="kdenlive:file_hash">%4</property>
++ </chain>
++ <playlist id="main_bin">
++  <property name="kdenlive:docproperties.documentid">1700000000000</property>
++  <entry in="0" out="100" producer="chain0"/>
++ </playlist>
++</mlt>
++)")
++                            .arg(root, resource, ControlUuid, hash);
++    QDomDocument doc;
++    REQUIRE(doc.setContent(xml));
++    return doc;
++}
++
++// Opens the project as Kdenlive does and returns the missing-clip entry.
++DocumentChecker::DocumentResource checkMissingClip(const QString &projectPath, QDomDocument &doc)
++{
++    DocumentChecker checker(QUrl::fromLocalFile(projectPath), doc);
++    REQUIRE(checker.hasErrorInProject());
++    for (const auto &item : checker.resourceItems()) {
++        if (item.type == DocumentChecker::MissingType::Clip) {
++            KdenliveTests::applyDocumentCheckerFixes(checker);
++            return item;
++        }
++    }
++    FAIL("no missing clip reported");
++    return {};
++}
++
++} // namespace
++
++TEST_CASE("Relink missing clips through a PostProject sidecar", "[PostProject]")
++{
++    QTemporaryDir temporary;
++    REQUIRE(temporary.isValid());
++    QDir base(temporary.path());
++    REQUIRE(base.mkpath(QStringLiteral("film/rushes")));
++    REQUIRE(base.mkpath(QStringLiteral("film/other")));
++    const QString projectFolder = QDir(base.filePath(QStringLiteral("film"))).canonicalPath();
++    const QString projectPath = projectFolder + QStringLiteral("/film.kdenlive");
++    const QString clipPath = projectFolder + QStringLiteral("/rushes/interview.mkv");
++    REQUIRE(QFile::copy(ClipSource, clipPath));
++    const QString hash = kdenliveHash(clipPath);
++
++    SECTION("Saving records the clip and a renamed clip is relinked by content")
++    {
++        PostProjectSidecar::recordProject(projectPath, projectScene(projectFolder, QStringLiteral("rushes/interview.mkv"), hash));
++        REQUIRE(QFile::exists(projectFolder + QStringLiteral("/film.pproj")));
++
++        const QString renamed = projectFolder + QStringLiteral("/rushes/interview-take2.mkv");
++        REQUIRE(QFile::rename(clipPath, renamed));
++        // Same name, different content: filename evidence alone must not win.
++        REQUIRE(QFile::copy(sourcesPath + QStringLiteral("/dataset/red.mp4"), projectFolder + QStringLiteral("/other/interview.mkv")));
++
++        QDomDocument doc = projectScene(projectFolder, QStringLiteral("rushes/interview.mkv"), hash);
++        const auto item = checkMissingClip(projectPath, doc);
++        CHECK(item.status == DocumentChecker::MissingStatus::Fixed);
++        CHECK(item.newFilePath == renamed);
++        const QDomElement chain = doc.elementsByTagName(QStringLiteral("chain")).item(0).toElement();
++        CHECK(Xml::getXmlProperty(chain, QStringLiteral("resource")) == renamed);
++    }
++
++    SECTION("Saving after a relink confirms the new location")
++    {
++        PostProjectSidecar::recordProject(projectPath, projectScene(projectFolder, QStringLiteral("rushes/interview.mkv"), hash));
++        const QString moved = projectFolder + QStringLiteral("/other/interview.mkv");
++        REQUIRE(QFile::rename(clipPath, moved));
++        PostProjectSidecar::recordProject(projectPath, projectScene(projectFolder, moved, hash));
++
++        const auto production = postproject::Production::open(QString(projectFolder + QStringLiteral("/film.pproj")).toStdString());
++        const auto assets = production.findByExternalIdentifier("https://postproject.org/id/application", ControlUuid.toStdString());
++        REQUIRE(assets.size() == 1);
++        const auto representations = production.representations(assets.front().id);
++        REQUIRE(representations.size() == 1);
++        QStringList locators;
++        for (const auto &locator : representations.front().resources.front().locators) {
++            locators << QUrl(QString::fromStdString(locator.uri)).toLocalFile();
++        }
++        locators.sort();
++        CHECK(locators == QStringList({moved, clipPath}));
++    }
++
++    SECTION("A clip outside the project folder is found in its former folder")
++    {
++        REQUIRE(base.mkpath(QStringLiteral("media")));
++        const QString mediaFolder = QDir(base.filePath(QStringLiteral("media"))).canonicalPath();
++        const QString outside = mediaFolder + QStringLiteral("/interview.mkv");
++        REQUIRE(QFile::rename(clipPath, outside));
++        PostProjectSidecar::recordProject(projectPath, projectScene(projectFolder, outside, hash));
++        const QString renamed = mediaFolder + QStringLiteral("/interview-graded.mkv");
++        REQUIRE(QFile::rename(outside, renamed));
++
++        QDomDocument doc = projectScene(projectFolder, outside, hash);
++        const auto item = checkMissingClip(projectPath, doc);
++        CHECK(item.status == DocumentChecker::MissingStatus::Fixed);
++        CHECK(item.newFilePath == renamed);
++    }
++
++    SECTION("Two identical copies stay for the user to choose")
++    {
++        PostProjectSidecar::recordProject(projectPath, projectScene(projectFolder, QStringLiteral("rushes/interview.mkv"), hash));
++        REQUIRE(QFile::rename(clipPath, projectFolder + QStringLiteral("/rushes/a.mkv")));
++        REQUIRE(QFile::copy(projectFolder + QStringLiteral("/rushes/a.mkv"), projectFolder + QStringLiteral("/other/b.mkv")));
++
++        QDomDocument doc = projectScene(projectFolder, QStringLiteral("rushes/interview.mkv"), hash);
++        const auto item = checkMissingClip(projectPath, doc);
++        CHECK(item.status == DocumentChecker::MissingStatus::Missing);
++        CHECK(item.newFilePath.isEmpty());
++    }
++
++    SECTION("A candidate that Kdenlive's own hash rejects is not used")
++    {
++        PostProjectSidecar::recordProject(projectPath, projectScene(projectFolder, QStringLiteral("rushes/interview.mkv"), hash));
++        REQUIRE(QFile::rename(clipPath, projectFolder + QStringLiteral("/rushes/interview-take2.mkv")));
++
++        QDomDocument doc = projectScene(projectFolder, QStringLiteral("rushes/interview.mkv"), QStringLiteral("00000000000000000000000000000000"));
++        const auto item = checkMissingClip(projectPath, doc);
++        CHECK(item.status == DocumentChecker::MissingStatus::Missing);
++    }
++
++    SECTION("Without a sidecar Kdenlive reports the clip as missing, as before")
++    {
++        REQUIRE(QFile::rename(clipPath, projectFolder + QStringLiteral("/rushes/interview-take2.mkv")));
++
++        QDomDocument doc = projectScene(projectFolder, QStringLiteral("rushes/interview.mkv"), hash);
++        const auto item = checkMissingClip(projectPath, doc);
++        CHECK(item.status == DocumentChecker::MissingStatus::Missing);
++        CHECK_FALSE(QFile::exists(projectFolder + QStringLiteral("/film.pproj")));
++    }
++
++    SECTION("An unreadable sidecar is ignored")
++    {
++        QFile corrupt(projectFolder + QStringLiteral("/film.pproj"));
++        REQUIRE(corrupt.open(QIODevice::WriteOnly));
++        corrupt.write("not a production");
++        corrupt.close();
++        PostProjectSidecar::recordProject(projectPath, projectScene(projectFolder, QStringLiteral("rushes/interview.mkv"), hash));
++        REQUIRE(QFile::rename(clipPath, projectFolder + QStringLiteral("/rushes/interview-take2.mkv")));
++
++        QDomDocument doc = projectScene(projectFolder, QStringLiteral("rushes/interview.mkv"), hash);
++        const auto item = checkMissingClip(projectPath, doc);
++        CHECK(item.status == DocumentChecker::MissingStatus::Missing);
++    }
++}
+diff --git a/tests/test_utils.cpp b/tests/test_utils.cpp
+index e93178ad3..4883b37b9 100644
+--- a/tests/test_utils.cpp
++++ b/tests/test_utils.cpp
+@@ -137,6 +137,17 @@ bool KdenliveTests::isMltBuildInLuma(const QString &lumaName)
+     return DocumentChecker::isMltBuildInLuma(lumaName);
+ }
+ 
++void KdenliveTests::applyDocumentCheckerFixes(DocumentChecker &checker)
++{
++    const QDomNodeList producers = checker.m_doc.elementsByTagName(QStringLiteral("producer"));
++    const QDomNodeList chains = checker.m_doc.elementsByTagName(QStringLiteral("chain"));
++    const QDomNodeList transitions = checker.m_doc.elementsByTagName(QStringLiteral("transition"));
++    const QDomNodeList filters = checker.m_doc.elementsByTagName(QStringLiteral("filter"));
++    for (const auto &item : checker.m_items) {
++        checker.fixMissingItem(item, producers, chains, transitions, filters);
++    }
++}
++
+ void KdenliveTests::setAudioTargets(std::shared_ptr<TimelineItemModel> timeline, QMap<int, QString> audioInfo)
+ {
+     timeline->m_binAudioTargets = audioInfo;
+diff --git a/tests/test_utils.hpp b/tests/test_utils.hpp
+index 1c582acd8..01e20a2aa 100644
+--- a/tests/test_utils.hpp
++++ b/tests/test_utils.hpp
+@@ -89,6 +89,8 @@ using namespace fakeit;
+         .Exactly(1);                                                                                                                                           \
+     NO_OTHERS();
+ 
++class DocumentChecker;
++
+ class KdenliveTests
+ {
+ public:
+@@ -108,6 +110,8 @@ public:
+ 
+     static void removeAssetsById(QDomDocument &doc, const QString &tagName, const QStringList &idsToDelete);
+     static bool isMltBuildInLuma(const QString &lumaName);
++    /** @brief Applies the checker's proposed fixes as accepting the resolve dialog does. */
++    static void applyDocumentCheckerFixes(DocumentChecker &checker);
+ 
+     static bool updateTimeline(bool createNewTab, const QString &chunks, const QString &dirty, const QDateTime &documentDate, bool enablePreview);
+     static void setAudioTargets(std::shared_ptr<TimelineItemModel> timeline, QMap<int, QString> audioInfo);

@@ -1,0 +1,5 @@
+# The Kdenlive revision the patch series applies to. Change all three together
+# and rebase the series deliberately; see README.md.
+KDENLIVE_URL=https://invent.kde.org/multimedia/kdenlive.git
+KDENLIVE_TAG=v26.08.1
+KDENLIVE_COMMIT=55e16e85cd9a9c6e032cd27a621137b4da881a7c

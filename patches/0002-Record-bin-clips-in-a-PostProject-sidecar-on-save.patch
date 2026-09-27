@@ -1,0 +1,419 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Erich Seifert <dev@erichseifert.de>
+Date: Sun, 27 Sep 2026 14:34:33 +0200
+Subject: [PATCH 2/4] Record bin clips in a PostProject sidecar on save
+
+Saving film.kdenlive records each file-backed bin clip in film.pproj:
+an imported asset with PostProject's content fingerprint, keyed by
+kdenlive:control_uuid. A clip Kdenlive relinked gets its new location
+confirmed. The project file is not changed, and failures are only
+logged.
+
+The PostProject C++ wrapper reports errors as exceptions, so the
+adapter is the one source file compiled with exceptions.
+
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index f3e38d98a..f3b0249a8 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -303,6 +303,12 @@ target_link_libraries(kdenliveLib PUBLIC KDAB::kddockwidgets)
+ 
+ target_link_libraries(kdenliveLib PUBLIC FFmpeg::FFmpeg)
+ 
++if(HAVE_POSTPROJECT)
++  target_link_libraries(kdenliveLib PUBLIC PostProject::postproject)
++  # The PostProject C++ wrapper reports errors as exceptions; only its adapter needs them.
++  kde_source_files_enable_exceptions(doc/postprojectsidecar.cpp)
++endif()
++
+ if(WIN32)
+     target_link_libraries(kdenliveLib PUBLIC d3d11 d3dcompiler)
+ endif()
+diff --git a/src/doc/CMakeLists.txt b/src/doc/CMakeLists.txt
+index a3ccc7e7b..ddd4d3307 100644
+--- a/src/doc/CMakeLists.txt
++++ b/src/doc/CMakeLists.txt
+@@ -9,6 +9,9 @@ set(kdenlive_SRCS
+   doc/documentvalidator.cpp
+   doc/kdenlivedoc.cpp
+   doc/kthumb.cpp
+-  doc/docundostack.cpp
+-  PARENT_SCOPE)
++  doc/docundostack.cpp)
++if(HAVE_POSTPROJECT)
++  list(APPEND kdenlive_SRCS doc/postprojectsidecar.cpp)
++endif()
++set(kdenlive_SRCS ${kdenlive_SRCS} PARENT_SCOPE)
+ 
+diff --git a/src/doc/kdenlivedoc.cpp b/src/doc/kdenlivedoc.cpp
+index fa23b1019..4eec86075 100644
+--- a/src/doc/kdenlivedoc.cpp
++++ b/src/doc/kdenlivedoc.cpp
+@@ -34,6 +34,9 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+ 
+ #include "utils/uiutils.h"
+ #include <config-kdenlive.h>
++#ifdef HAVE_POSTPROJECT
++#include "postprojectsidecar.h"
++#endif
+ 
+ #include <KBookmark>
+ #include <KBookmarkManager>
+@@ -781,6 +784,9 @@ bool KdenliveDoc::saveSceneList(const QString &path, const QString &scene, bool
+         return false;
+     }
+     (void)QtConcurrent::run(&KdenliveDoc::cleanupBackupFiles, this);
++#ifdef HAVE_POSTPROJECT
++    PostProjectSidecar::recordProject(path, sceneList);
++#endif
+     QFileInfo info(path);
+     QString fileName = info.completeBaseName();
+     const QString timeStamp = info.lastModified().toString(QStringLiteral("yyyy-MM-dd-hh-mm"));
+diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
+new file mode 100644
+index 000000000..5ad98d650
+--- /dev/null
++++ b/src/doc/postprojectsidecar.cpp
+@@ -0,0 +1,287 @@
++/*
++    SPDX-FileCopyrightText: 2026 Erich Seifert <dev@erichseifert.de>
++
++    SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
++*/
++
++#include "postprojectsidecar.h"
++#include "bin/binplaylist.hpp"
++#include "kdenlive_debug.h"
++#include "xml/xml.hpp"
++#include <config-kdenlive.h>
++
++#include <QCryptographicHash>
++#include <QDir>
++#include <QDomDocument>
++#include <QFileInfo>
++#include <QUrl>
++
++#include <optional>
++#include <set>
++#include <string>
++#include <vector>
++
++// The PostProject C++ wrapper reports errors as exceptions, so this is the only
++// Kdenlive source file compiled with exceptions enabled. None escape it.
++#include <postproject/postproject.hpp>
++
++namespace pp = postproject;
++
++namespace {
++
++// Kdenlive's clip identity is stored as an application identifier on the asset.
++constexpr const char *IdentifierScheme = "https://postproject.org/id/application";
++constexpr const char *IdentifierQualifier = "org.kde.kdenlive:control_uuid";
++// The logical root for the project folder. Its directory is supplied on every
++// resolution, so a moved project keeps resolving under its new folder.
++constexpr const char *ProjectRoot = "kdenlive-project";
++// Clip folders outside the project folder become roots named from a digest of
++// their path and labelled with the path itself.
++constexpr const char *FolderRootPrefix = "kdenlive-folder-";
++
++struct BinClip
++{
++    std::string controlUuid;
++    QString path;
++    QString name;
++};
++
++std::string utf8(const QString &value)
++{
++    return value.toStdString();
++}
++
++QString fromUtf8(const std::string &value)
++{
++    return QString::fromStdString(value);
++}
++
++QString localPath(const std::string &uri)
++{
++    return QUrl(fromUtf8(uri)).toLocalFile();
++}
++
++bool isInside(const QString &path, const QString &directory)
++{
++    return path == directory || path.startsWith(directory + QLatin1Char('/'));
++}
++
++QString folderRootName(const QString &directory)
++{
++    const QByteArray digest = QCryptographicHash::hash(directory.toUtf8(), QCryptographicHash::Sha256).toHex();
++    return QLatin1String(FolderRootPrefix) + QString::fromLatin1(digest.left(16));
++}
++
++std::vector<BinClip> fileBackedBinClips(const QString &projectPath, const QDomDocument &scene)
++{
++    const QDomElement mlt = scene.documentElement();
++    QString root = mlt.attribute(QStringLiteral("root"));
++    if (root.isEmpty()) {
++        root = QFileInfo(projectPath).absolutePath();
++    }
++    std::set<QString> binIds;
++    const QDomNodeList playlists = scene.elementsByTagName(QStringLiteral("playlist"));
++    for (int i = 0; i < playlists.count(); ++i) {
++        const QDomElement playlist = playlists.item(i).toElement();
++        if (playlist.attribute(QStringLiteral("id")) != BinPlaylist::binPlaylistId) {
++            continue;
++        }
++        const QDomNodeList entries = playlist.elementsByTagName(QStringLiteral("entry"));
++        for (int j = 0; j < entries.count(); ++j) {
++            binIds.insert(entries.item(j).toElement().attribute(QStringLiteral("producer")));
++        }
++    }
++
++    std::vector<BinClip> clips;
++    std::set<std::string> seen;
++    for (const QString &tag : {QStringLiteral("producer"), QStringLiteral("chain")}) {
++        const QDomNodeList elements = scene.elementsByTagName(tag);
++        for (int i = 0; i < elements.count(); ++i) {
++            const QDomElement element = elements.item(i).toElement();
++            if (binIds.count(element.attribute(QStringLiteral("id"))) == 0) {
++                continue;
++            }
++            const QString service = Xml::getXmlProperty(element, QStringLiteral("mlt_service"));
++            if (!service.startsWith(QLatin1String("avformat")) && service != QLatin1String("qimage") && service != QLatin1String("pixbuf")) {
++                continue;
++            }
++            const std::string controlUuid = utf8(Xml::getXmlProperty(element, QStringLiteral("kdenlive:control_uuid")));
++            if (controlUuid.empty() || !seen.insert(controlUuid).second) {
++                continue;
++            }
++            // With a proxy in use, resource names the proxy and originalurl the clip.
++            QString path = Xml::getXmlProperty(element, QStringLiteral("kdenlive:originalurl"));
++            if (path.isEmpty()) {
++                path = Xml::getXmlProperty(element, QStringLiteral("resource"));
++            }
++            // Image sequences and slideshows are patterns, not files.
++            if (path.isEmpty() || path.contains(QLatin1Char('%')) || path.contains(QLatin1String(".all."))) {
++                continue;
++            }
++            const QFileInfo file(QDir(root), path);
++            if (!file.isFile()) {
++                continue;
++            }
++            QString name = Xml::getXmlProperty(element, QStringLiteral("kdenlive:clipname"));
++            if (name.isEmpty()) {
++                name = file.fileName();
++            }
++            clips.push_back({controlUuid, file.canonicalFilePath(), name});
++        }
++    }
++    return clips;
++}
++
++std::optional<pp::Uuid> findClipAsset(const pp::Production &production, const std::string &controlUuid)
++{
++    for (const pp::ObjectRef &object : production.findByExternalIdentifier(IdentifierScheme, controlUuid)) {
++        if (object.kind != pp::ObjectKind::asset) {
++            continue;
++        }
++        for (const pp::ExternalIdentifier &identifier : production.externalIdentifiers(object)) {
++            if (identifier.scheme == IdentifierScheme && identifier.value == controlUuid && identifier.qualifier == IdentifierQualifier) {
++                return object.id;
++            }
++        }
++    }
++    return std::nullopt;
++}
++
++// The clip's file: the original single-file representation created by import.
++std::optional<pp::Representation> clipRepresentation(const pp::Production &production, const pp::Uuid &assetId)
++{
++    for (pp::Representation &representation : production.representations(assetId)) {
++        if (representation.kind == pp::RepresentationKind::original && representation.structure_kind == pp::ContentStructureKind::single_resource &&
++            representation.resources.size() == 1) {
++            return std::move(representation);
++        }
++    }
++    return std::nullopt;
++}
++
++} // namespace
++
++QString PostProjectSidecar::sidecarPath(const QString &projectPath)
++{
++    const QFileInfo project(projectPath);
++    return project.absoluteDir().absoluteFilePath(project.completeBaseName() + QStringLiteral(".pproj"));
++}
++
++void PostProjectSidecar::recordProject(const QString &projectPath, const QDomDocument &scene)
++{
++    const QString path = sidecarPath(projectPath);
++    try {
++        const std::vector<BinClip> clips = fileBackedBinClips(projectPath, scene);
++        if (clips.empty() && !QFileInfo::exists(path)) {
++            return;
++        }
++        pp::Production production =
++            QFileInfo::exists(path) ? pp::Production::open(utf8(path)) : pp::Production::create(utf8(path), utf8(QFileInfo(projectPath).completeBaseName()));
++        const QString projectFolder = QFileInfo(projectPath).absoluteDir().canonicalPath();
++
++        std::set<QString> rootNames;
++        for (const pp::MediaRoot &root : production.mediaRoots()) {
++            rootNames.insert(fromUtf8(root.name));
++        }
++        pp::Transaction transaction = production.beginTransaction();
++        transaction.setRevisionContext({pp::OriginIdentity{"Kdenlive", std::string(KDENLIVE_VERSION), std::nullopt}, std::string("Save project")});
++        bool changed = false;
++        if (rootNames.insert(QLatin1String(ProjectRoot)).second) {
++            transaction.addMediaRoot(ProjectRoot, "Kdenlive project folder", 0);
++            changed = true;
++        }
++        for (const BinClip &clip : clips) {
++            const QString folder = QFileInfo(clip.path).absolutePath();
++            if (!isInside(folder, projectFolder)) {
++                const QString rootName = folderRootName(folder);
++                if (rootNames.insert(rootName).second) {
++                    transaction.addMediaRoot(utf8(rootName), utf8(folder), 1);
++                    changed = true;
++                }
++            }
++
++            const std::optional<pp::Uuid> assetId = findClipAsset(production, clip.controlUuid);
++            if (!assetId) {
++                const pp::Uuid imported = transaction.importMedia(utf8(clip.path), utf8(clip.name));
++                transaction.addExternalIdentifier({pp::ObjectKind::asset, imported}, {IdentifierScheme, clip.controlUuid, std::string(IdentifierQualifier)});
++                changed = true;
++                continue;
++            }
++            const std::optional<pp::Representation> representation = clipRepresentation(production, *assetId);
++            if (!representation) {
++                continue;
++            }
++            const pp::Resource &resource = representation->resources.front();
++            bool known = false;
++            for (const pp::Locator &locator : resource.locators) {
++                known = known || localPath(locator.uri) == clip.path;
++            }
++            if (!known) {
++                // Kdenlive relinked the clip: record where it is now.
++                transaction.confirmLocator(resource.id, utf8(QUrl::fromLocalFile(clip.path).toString(QUrl::FullyEncoded)));
++                changed = true;
++            }
++        }
++        if (changed) {
++            transaction.commit();
++        } else {
++            transaction.rollback();
++        }
++    } catch (const pp::Error &error) {
++        qCWarning(KDENLIVE_LOG) << "PostProject sidecar" << path << "was not updated:" << error.what();
++    }
++}
++
++QString PostProjectSidecar::locateMissingClip(const QString &projectPath, const QString &controlUuid)
++{
++    const QString path = sidecarPath(projectPath);
++    if (controlUuid.isEmpty() || !QFileInfo::exists(path)) {
++        return QString();
++    }
++    try {
++        const pp::Production production = pp::Production::open(utf8(path));
++        const std::optional<pp::Uuid> assetId = findClipAsset(production, utf8(controlUuid));
++        if (!assetId) {
++            return QString();
++        }
++        const std::optional<pp::Representation> representation = clipRepresentation(production, *assetId);
++        if (!representation) {
++            return QString();
++        }
++        const pp::Resource &resource = representation->resources.front();
++
++        // Search the project folder as it is now, and each former clip folder
++        // outside it that still exists on this machine.
++        std::vector<pp::MediaRootMapping> mappings{{ProjectRoot, utf8(QFileInfo(projectPath).absolutePath())}};
++        for (const pp::MediaRoot &root : production.mediaRoots()) {
++            if (!root.label || !fromUtf8(root.name).startsWith(QLatin1String(FolderRootPrefix))) {
++                continue;
++            }
++            const QString folder = fromUtf8(*root.label);
++            bool former = false;
++            for (const pp::Locator &locator : resource.locators) {
++                former = former || QFileInfo(localPath(locator.uri)).absolutePath() == folder;
++            }
++            if (former && QFileInfo(folder).isDir()) {
++                mappings.push_back({root.name, utf8(folder)});
++            }
++        }
++
++        for (const pp::RepresentationResolution &resolution : production.resolveAsset(*assetId, mappings)) {
++            if (resolution.representation_id != representation->id) {
++                continue;
++            }
++            for (const pp::ResourceResolution &resourceResolution : resolution.resources) {
++                const bool located = resourceResolution.state == pp::ResourceResolutionState::online_at_known_locator ||
++                                     resourceResolution.state == pp::ResourceResolutionState::resolved_exact ||
++                                     resourceResolution.state == pp::ResourceResolutionState::resolved_probable;
++                if (resourceResolution.resource_id == resource.id && located && resourceResolution.candidates.size() == 1) {
++                    return localPath(resourceResolution.candidates.front().uri);
++                }
++            }
++        }
++    } catch (const pp::Error &error) {
++        qCWarning(KDENLIVE_LOG) << "PostProject sidecar" << path << "could not locate clip" << controlUuid << ":" << error.what();
++    }
++    return QString();
++}
+diff --git a/src/doc/postprojectsidecar.h b/src/doc/postprojectsidecar.h
+new file mode 100644
+index 000000000..aa5a437e2
+--- /dev/null
++++ b/src/doc/postprojectsidecar.h
+@@ -0,0 +1,49 @@
++/*
++    SPDX-FileCopyrightText: 2026 Erich Seifert <dev@erichseifert.de>
++
++    SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
++*/
++
++#pragma once
++
++#include <QString>
++
++class QDomDocument;
++
++/**
++ * @brief Experimental PostProject sidecar used to relink missing clips by content.
++ *
++ * A project saved as film.kdenlive keeps a PostProject production in film.pproj
++ * next to it. The project file stays authoritative and is never modified by this
++ * code: the sidecar only records each file-backed bin clip (keyed by its
++ * kdenlive:control_uuid) with PostProject's content fingerprint and location.
++ * When a clip is missing, PostProject resolves it by content under the project
++ * folder and the clip's former folder. Every failure is logged and treated as
++ * "no answer", so Kdenlive behaves as without the sidecar.
++ *
++ * See https://github.com/postproject-org/postproject-kdenlive
++ */
++namespace PostProjectSidecar {
++
++/** @brief Returns the sidecar production path for a project file path. */
++QString sidecarPath(const QString &projectPath);
++
++/**
++ * @brief Records the saved project's file-backed bin clips in the sidecar.
++ *
++ * Creates the sidecar when the project has at least one such clip. Clips seen for
++ * the first time are imported and fingerprinted; a known clip whose file moved
++ * gets its new location confirmed.
++ */
++void recordProject(const QString &projectPath, const QDomDocument &scene);
++
++/**
++ * @brief Locates a missing bin clip by content.
++ *
++ * @returns the local path of the one file PostProject identifies as the clip,
++ *          or an empty string when the sidecar or clip is unknown, nothing
++ *          matches, or more than one file matches.
++ */
++QString locateMissingClip(const QString &projectPath, const QString &controlUuid);
++
++} // namespace PostProjectSidecar

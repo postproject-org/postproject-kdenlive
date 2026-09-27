@@ -1,0 +1,4 @@
+0001-Find-PostProject-as-an-optional-package.patch
+0002-Record-bin-clips-in-a-PostProject-sidecar-on-save.patch
+0003-Relink-missing-clips-through-the-PostProject-sidecar.patch
+0004-Test-relinking-through-the-PostProject-sidecar.patch
