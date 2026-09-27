@@ -6,8 +6,8 @@ Subject: [PATCH 2/4] Record bin clips in a PostProject sidecar on save
 Saving film.kdenlive records each file-backed bin clip in film.pproj:
 an imported asset with PostProject's content fingerprint, keyed by
 kdenlive:control_uuid. A clip Kdenlive relinked gets its new location
-confirmed. The project file is not changed, and failures are only
-logged.
+confirmed, and former locations whose files are gone are retired. The
+project file is not changed, and failures are only logged.
 
 The PostProject C++ wrapper reports errors as exceptions, so the
 adapter is the one source file compiled with exceptions.
@@ -71,10 +71,10 @@ index fa23b1019..4eec86075 100644
      const QString timeStamp = info.lastModified().toString(QStringLiteral("yyyy-MM-dd-hh-mm"));
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
 new file mode 100644
-index 000000000..5ad98d650
+index 000000000..2a5eed066
 --- /dev/null
 +++ b/src/doc/postprojectsidecar.cpp
-@@ -0,0 +1,287 @@
+@@ -0,0 +1,293 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 Erich Seifert <dev@erichseifert.de>
 +
@@ -294,8 +294,14 @@ index 000000000..5ad98d650
 +                known = known || localPath(locator.uri) == clip.path;
 +            }
 +            if (!known) {
-+                // Kdenlive relinked the clip: record where it is now.
++                // Kdenlive relinked the clip: record where it is now, and retire the
++                // former locations whose files are gone.
 +                transaction.confirmLocator(resource.id, utf8(QUrl::fromLocalFile(clip.path).toString(QUrl::FullyEncoded)));
++                for (const pp::Locator &locator : resource.locators) {
++                    if (!QFileInfo::exists(localPath(locator.uri))) {
++                        transaction.retireLocator(locator.id);
++                    }
++                }
 +                changed = true;
 +            }
 +        }
@@ -364,7 +370,7 @@ index 000000000..5ad98d650
 +}
 diff --git a/src/doc/postprojectsidecar.h b/src/doc/postprojectsidecar.h
 new file mode 100644
-index 000000000..aa5a437e2
+index 000000000..2bc6390de
 --- /dev/null
 +++ b/src/doc/postprojectsidecar.h
 @@ -0,0 +1,49 @@
@@ -403,7 +409,7 @@ index 000000000..aa5a437e2
 + *
 + * Creates the sidecar when the project has at least one such clip. Clips seen for
 + * the first time are imported and fingerprinted; a known clip whose file moved
-+ * gets its new location confirmed.
++ * gets its new location confirmed and its vanished former locations retired.
 + */
 +void recordProject(const QString &projectPath, const QDomDocument &scene);
 +

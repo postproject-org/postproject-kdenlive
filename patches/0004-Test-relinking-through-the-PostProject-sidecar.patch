@@ -4,8 +4,9 @@ Date: Sun, 27 Sep 2026 14:34:34 +0200
 Subject: [PATCH 4/4] Test relinking through the PostProject sidecar
 
 Cover a renamed clip, a clip outside the project folder, a relink
-recorded on the next save, two identical copies, a candidate rejected
-by Kdenlive's hash, and a missing or unreadable sidecar.
+recorded on the next save with its former location retired or kept,
+two identical copies, a candidate rejected by Kdenlive's hash, and a
+missing or unreadable sidecar.
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
 index e1a7c9bbb..a9fabe7bd 100644
@@ -23,10 +24,10 @@ index e1a7c9bbb..a9fabe7bd 100644
  
 diff --git a/tests/postprojecttest.cpp b/tests/postprojecttest.cpp
 new file mode 100644
-index 000000000..a46939552
+index 000000000..ddf57eb67
 --- /dev/null
 +++ b/tests/postprojecttest.cpp
-@@ -0,0 +1,184 @@
+@@ -0,0 +1,203 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 Erich Seifert <dev@erichseifert.de>
 +
@@ -129,7 +130,7 @@ index 000000000..a46939552
 +        CHECK(Xml::getXmlProperty(chain, QStringLiteral("resource")) == renamed);
 +    }
 +
-+    SECTION("Saving after a relink confirms the new location")
++    SECTION("Saving after a relink confirms the new location and retires the old one")
 +    {
 +        PostProjectSidecar::recordProject(projectPath, projectScene(projectFolder, QStringLiteral("rushes/interview.mkv"), hash));
 +        const QString moved = projectFolder + QStringLiteral("/other/interview.mkv");
@@ -145,8 +146,27 @@ index 000000000..a46939552
 +        for (const auto &locator : representations.front().resources.front().locators) {
 +            locators << QUrl(QString::fromStdString(locator.uri)).toLocalFile();
 +        }
++        CHECK(locators == QStringList({moved}));
++    }
++
++    SECTION("A former location whose file still exists is kept")
++    {
++        PostProjectSidecar::recordProject(projectPath, projectScene(projectFolder, QStringLiteral("rushes/interview.mkv"), hash));
++        const QString copy = projectFolder + QStringLiteral("/other/interview.mkv");
++        REQUIRE(QFile::copy(clipPath, copy));
++        PostProjectSidecar::recordProject(projectPath, projectScene(projectFolder, copy, hash));
++
++        const auto production = postproject::Production::open(QString(projectFolder + QStringLiteral("/film.pproj")).toStdString());
++        const auto assets = production.findByExternalIdentifier("https://postproject.org/id/application", ControlUuid.toStdString());
++        REQUIRE(assets.size() == 1);
++        const auto representations = production.representations(assets.front().id);
++        REQUIRE(representations.size() == 1);
++        QStringList locators;
++        for (const auto &locator : representations.front().resources.front().locators) {
++            locators << QUrl(QString::fromStdString(locator.uri)).toLocalFile();
++        }
 +        locators.sort();
-+        CHECK(locators == QStringList({moved, clipPath}));
++        CHECK(locators == QStringList({copy, clipPath}));
 +    }
 +
 +    SECTION("A clip outside the project folder is found in its former folder")
