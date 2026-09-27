@@ -13,7 +13,7 @@ here=$(cd "$(dirname "$0")/.." && pwd)
 tree=${1:-"$here/kdenlive"}
 
 rm -f "$here"/patches/*.patch
-git -C "$tree" format-patch -q --zero-commit --no-signature --no-stat \
+git -C "$tree" format-patch -q --zero-commit --no-signature --no-stat --abbrev=9 \
     -o "$here/patches" "$KDENLIVE_COMMIT..HEAD"
 (cd "$here/patches" && ls ./*.patch | sed 's|^\./||') > "$here/patches/series"
 cat "$here/patches/series"
