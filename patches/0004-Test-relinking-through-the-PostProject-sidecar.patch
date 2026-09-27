@@ -5,8 +5,9 @@ Subject: [PATCH 4/4] Test relinking through the PostProject sidecar
 
 Cover a renamed clip, a clip outside the project folder, a relink
 recorded on the next save with its former location retired or kept,
-two identical copies, a candidate rejected by Kdenlive's hash, and a
-missing or unreadable sidecar.
+Kdenlive's hash kept without roots or pending representations, several
+clips answered from one resolution, two identical copies, a candidate
+rejected by Kdenlive's hash, and a missing or unreadable sidecar.
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
 index e1a7c9bbb..a9fabe7bd 100644
@@ -24,10 +25,10 @@ index e1a7c9bbb..a9fabe7bd 100644
  
 diff --git a/tests/postprojecttest.cpp b/tests/postprojecttest.cpp
 new file mode 100644
-index 000000000..ddf57eb67
+index 000000000..e5f7283e9
 --- /dev/null
 +++ b/tests/postprojecttest.cpp
-@@ -0,0 +1,203 @@
+@@ -0,0 +1,248 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 Erich Seifert <dev@erichseifert.de>
 +
@@ -80,6 +81,28 @@ index 000000000..ddf57eb67
 +    QDomDocument doc;
 +    REQUIRE(doc.setContent(xml));
 +    return doc;
++}
++
++// The clip's resource as the sidecar records it, found by Kdenlive's identity.
++postproject::Resource recordedResource(const QString &projectFolder)
++{
++    const auto production = postproject::Production::open(QString(projectFolder + QStringLiteral("/film.pproj")).toStdString()).value();
++    const auto assets =
++        production.findByExternalIdentifier("https://postproject.org/id/application", ControlUuid.toStdString(), "org.kde.kdenlive:control_uuid").value();
++    REQUIRE(assets.size() == 1);
++    const auto representations = production.representations(assets.front().id).value();
++    REQUIRE(representations.size() == 1);
++    REQUIRE(representations.front().resources.size() == 1);
++    return representations.front().resources.front();
++}
++
++QStringList recordedLocators(const QString &projectFolder)
++{
++    QStringList locators;
++    for (const auto &locator : recordedResource(projectFolder).locators) {
++        locators << QString::fromStdString(postproject::locatorFilePath(locator.uri).value());
++    }
++    return locators;
 +}
 +
 +// Opens the project as Kdenlive does and returns the missing-clip entry.
@@ -137,15 +160,7 @@ index 000000000..ddf57eb67
 +        REQUIRE(QFile::rename(clipPath, moved));
 +        PostProjectSidecar::recordProject(projectPath, projectScene(projectFolder, moved, hash));
 +
-+        const auto production = postproject::Production::open(QString(projectFolder + QStringLiteral("/film.pproj")).toStdString());
-+        const auto assets = production.findByExternalIdentifier("https://postproject.org/id/application", ControlUuid.toStdString());
-+        REQUIRE(assets.size() == 1);
-+        const auto representations = production.representations(assets.front().id);
-+        REQUIRE(representations.size() == 1);
-+        QStringList locators;
-+        for (const auto &locator : representations.front().resources.front().locators) {
-+            locators << QUrl(QString::fromStdString(locator.uri)).toLocalFile();
-+        }
++        const QStringList locators = recordedLocators(projectFolder);
 +        CHECK(locators == QStringList({moved}));
 +    }
 +
@@ -156,15 +171,7 @@ index 000000000..ddf57eb67
 +        REQUIRE(QFile::copy(clipPath, copy));
 +        PostProjectSidecar::recordProject(projectPath, projectScene(projectFolder, copy, hash));
 +
-+        const auto production = postproject::Production::open(QString(projectFolder + QStringLiteral("/film.pproj")).toStdString());
-+        const auto assets = production.findByExternalIdentifier("https://postproject.org/id/application", ControlUuid.toStdString());
-+        REQUIRE(assets.size() == 1);
-+        const auto representations = production.representations(assets.front().id);
-+        REQUIRE(representations.size() == 1);
-+        QStringList locators;
-+        for (const auto &locator : representations.front().resources.front().locators) {
-+            locators << QUrl(QString::fromStdString(locator.uri)).toLocalFile();
-+        }
++        QStringList locators = recordedLocators(projectFolder);
 +        locators.sort();
 +        CHECK(locators == QStringList({copy, clipPath}));
 +    }
@@ -183,6 +190,45 @@ index 000000000..ddf57eb67
 +        const auto item = checkMissingClip(projectPath, doc);
 +        CHECK(item.status == DocumentChecker::MissingStatus::Fixed);
 +        CHECK(item.newFilePath == renamed);
++    }
++
++    SECTION("The sidecar keeps Kdenlive's hash and records no roots or paths of its own")
++    {
++        PostProjectSidecar::recordProject(projectPath, projectScene(projectFolder, QStringLiteral("rushes/interview.mkv"), hash));
++
++        const auto resource = recordedResource(projectFolder);
++        bool kdenliveHash = false;
++        for (const auto &fingerprint : resource.fingerprints) {
++            kdenliveHash = kdenliveHash ||
++                           (fingerprint.algorithm == "kdenlive-file-hash" &&
++                            QByteArray(reinterpret_cast<const char *>(fingerprint.value.data()), int(fingerprint.value.size())).toHex() == hash.toLatin1());
++        }
++        CHECK(kdenliveHash);
++        const auto production = postproject::Production::open(QString(projectFolder + QStringLiteral("/film.pproj")).toStdString()).value();
++        CHECK(production.mediaRoots().value().empty());
++        // The host hash was recorded together with a recomputed representation
++        // fingerprint, so no representation is left pending recomputation.
++        const auto latest = production.latestRevision().value();
++        REQUIRE(latest.has_value());
++        bool recomputed = false;
++        for (const auto &event : production.revisionEvents(latest->id).value()) {
++            recomputed = recomputed || std::holds_alternative<postproject::RepresentationFingerprintObservedEvent>(event.payload);
++        }
++        CHECK(recomputed);
++    }
++
++    SECTION("Several missing clips are located from one resolution")
++    {
++        PostProjectSidecar::recordProject(projectPath, projectScene(projectFolder, QStringLiteral("rushes/interview.mkv"), hash));
++        const QString renamed = projectFolder + QStringLiteral("/other/interview-take2.mkv");
++        REQUIRE(QFile::rename(clipPath, renamed));
++
++        PostProjectSidecar::ClipLocator locator(projectPath);
++        CHECK(locator.locate(ControlUuid) == renamed);
++        // A later question is answered without searching again.
++        REQUIRE(QFile::remove(renamed));
++        CHECK(locator.locate(ControlUuid) == renamed);
++        CHECK(locator.locate(QStringLiteral("unknown")).isEmpty());
 +    }
 +
 +    SECTION("Two identical copies stay for the user to choose")

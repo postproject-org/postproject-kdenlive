@@ -22,10 +22,12 @@ PostProject only assists relinking.
 
 - On every save, `film.kdenlive` gets a sidecar production `film.pproj` next to
   it. The sidecar records each file-backed bin clip by its
-  `kdenlive:control_uuid`, PostProject content fingerprint, and location. The
-  `.kdenlive` file itself is never changed by the pilot.
-- On opening, a missing clip is resolved under the project folder and the
-  clip's former folder. A single match whose Kdenlive MD5 equals
+  `kdenlive:control_uuid`, PostProject content fingerprint, Kdenlive's own
+  hash, and location. The `.kdenlive` file itself is never changed by the
+  pilot.
+- On opening, all missing clips are resolved in one PostProject call under the
+  project folder and the clips' former folders. A single match whose Kdenlive
+  MD5 equals
   `kdenlive:file_hash` is shown as *Fixed* in the relink dialog. A duplicate,
   no match, an unreadable sidecar, or no sidecar leaves the clip *Missing*.
 - Built without PostProject (`-DWITH_POSTPROJECT=OFF`, or no package found),

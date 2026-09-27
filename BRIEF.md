@@ -72,21 +72,25 @@ on every machine that uses the file.
 This is a resolver experiment: Kdenlive keeps its project file and behavior, and
 PostProject only assists relinking. On save, Kdenlive records
 each file-backed bin clip in a sidecar production next to the project: an asset
-with PostProject's content fingerprint, its location, and `kdenlive:control_uuid`
-as an application identifier. When a project opens with a missing clip,
-Kdenlive asks PostProject to resolve that asset under the project folder and
-the clip's former folder, both mapped to where they are now. A single
+with PostProject's content fingerprint, Kdenlive's own hash as a host
+fingerprint, its location, and `kdenlive:control_uuid` as a qualified
+application identifier. When a project opens with missing clips, Kdenlive asks
+PostProject once to resolve every recorded clip. The project folder and each
+clip's former folder are searched as unnamed search directories, which are
+never recorded in the sidecar, and each folder is scanned once. A single
 confirmed candidate appears in the relink dialog as fixed, but only if
 Kdenlive's own MD5 of it equals the stored `kdenlive:file_hash`. In every other
 case (ambiguous, not found, error, or no sidecar) the dialog shows the clip as
 missing, exactly as before.
 
-**Where the stored hash is usable.** PostProject cannot search with it.
-Kdenlive's hash is MD5 over head and tail regions of 1,000,000 bytes, while
-PostProject fingerprints with sampled BLAKE3 over 64 KiB regions, and a
-resolver can only verify candidates against an algorithm it can compute. The
-experiment therefore uses the Kdenlive hash as a second, independent check on
-PostProject's single candidate. Clips saved before the pilot was installed
+**Where the stored hash is usable.** PostProject cannot compute it. Kdenlive's
+hash is MD5 over head and tail regions of 1,000,000 bytes, while PostProject
+fingerprints with sampled BLAKE3 over 64 KiB regions. The sidecar keeps it as a
+`kdenlive-file-hash` host fingerprint, recorded together with an observation of
+the clip's content so no representation is left pending. A resource with only
+such a host fingerprint still resolves by name and size, with the unchecked
+domain reported as evidence. The experiment uses the Kdenlive hash as a
+second, independent check on PostProject's single candidate. Clips saved before the pilot was installed
 have no sidecar entry and keep Kdenlive's behavior.
 
 ## Files and modules that change
@@ -94,7 +98,9 @@ have no sidecar entry and keep Kdenlive's behavior.
 `CMakeLists.txt`, `config-kdenlive.h.cmake`, `src/CMakeLists.txt`,
 `src/doc/CMakeLists.txt`, and `src/doc/documentchecker.cpp` get about 30 lines,
 all behind `HAVE_POSTPROJECT`. `src/doc/kdenlivedoc.cpp` gets one call after a
-successful save. New files: `src/doc/postprojectsidecar.{h,cpp}` and
+successful save. `src/doc/documentchecker.h` gets one member that keeps a
+project's PostProject answers while it is checked. New files:
+`src/doc/postprojectsidecar.{h,cpp}` and
 `tests/postprojecttest.cpp`, plus one test helper in `tests/test_utils.*`. The
 dialog, the models, and the project file format are unchanged.
 
@@ -104,8 +110,8 @@ The optional build dependency is the installed PostProject CMake package, found
 with `find_package(PostProject 0.4 CONFIG)`. At runtime, `libpostproject.so`
 (about 4.5 MiB, SQLite included) depends only on libc, libm, and libgcc. No
 Rust is needed to build Kdenlive, and no service or daemon runs. The C++17
-wrapper reports errors as exceptions, so the one adapter file is compiled with
-`kde_source_files_enable_exceptions()`.
+wrapper returns results instead of throwing, so the adapter builds with KDE's
+default `-fno-exceptions`.
 
 ## How to remove or revert it
 
