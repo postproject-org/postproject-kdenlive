@@ -34,7 +34,7 @@ index 956ffc16b..3dfccb7d2 100644
          return resource;
      }
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
-index c857f9944..ee522b72f 100644
+index 3826f8cf4..7ad97d6cc 100644
 --- a/src/doc/postprojectsidecar.cpp
 +++ b/src/doc/postprojectsidecar.cpp
 @@ -407,6 +407,34 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
