@@ -5,7 +5,9 @@ into [Kdenlive](https://kdenlive.org). When a project opens and a clip is
 missing because it was renamed or moved, Kdenlive asks PostProject to find it
 by content. It offers the file in its usual relink dialog only when exactly one
 file matches, and only when Kdenlive's own clip hash agrees with that file.
-In every other case the dialog behaves as before.
+In every other case the dialog behaves as before. Kdenlive also records each
+proxy it renders as derived from its clip. A proxy whose source was replaced is
+rebuilt when the project opens, where Kdenlive would keep playing it.
 
 This repository is not a Kdenlive fork. It holds a small patch series for one
 pinned Kdenlive release (`UPSTREAM`), the scripts that apply and build it, CI,
@@ -17,8 +19,8 @@ the Kdenlive maintainers.
 
 ## What changes
 
-It is a resolver experiment: Kdenlive keeps its project file and behavior, and
-PostProject only assists relinking.
+Kdenlive keeps its project file and behavior. PostProject assists relinking
+and keeps track of how each proxy was made.
 
 - On every save, `film.kdenlive` gets a sidecar production `film.pproj` next to
   it. The sidecar records each file-backed bin clip by its
@@ -30,6 +32,13 @@ PostProject only assists relinking.
   MD5 equals
   `kdenlive:file_hash` is shown as *Fixed* in the relink dialog. A duplicate,
   no match, an unreadable sidecar, or no sidecar leaves the clip *Missing*.
+- Rendering a proxy for a recorded clip runs as a PostProject job with Kdenlive
+  as the worker. The finished proxy is recorded with the activity that made it:
+  the tool, its arguments, and the content of the source it was made from. A
+  failed render records its log. Proxies made before their clip was recorded
+  are recorded on save when their name is the clip's present hash.
+- On opening, a proxy whose source no longer has that content is reported for
+  rebuilding in the relink dialog, and the rebuilt proxy is recorded again.
 - Built without PostProject (`-DWITH_POSTPROJECT=OFF`, or no package found),
   none of this code is compiled.
 
@@ -41,6 +50,9 @@ The patches in `patches/` are:
 | `0002` | Record bin clips in a PostProject sidecar on save |
 | `0003` | Relink missing clips through the PostProject sidecar |
 | `0004` | Test relinking through the PostProject sidecar |
+| `0005` | Record proxy renders in the PostProject sidecar |
+| `0006` | Rebuild proxies the PostProject sidecar reports as stale |
+| `0007` | Test proxies as managed artifacts in the PostProject sidecar |
 
 ## Build
 

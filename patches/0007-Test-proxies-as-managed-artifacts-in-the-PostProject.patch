@@ -1,0 +1,279 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Erich Seifert <dev@erichseifert.de>
+Date: Mon, 28 Sep 2026 09:08:39 +0200
+Subject: [PATCH 7/7] Test proxies as managed artifacts in the PostProject
+ sidecar
+
+Cover a render recorded as a completed job with its activity and
+arguments, a stale proxy offered for rebuilding after its clip is
+replaced, an unchanged clip keeping its proxy, a proxy rendered again
+at its old path, a failed and an abandoned render, a proxy recorded on
+the first save, a proxy named after other content, and clips the
+sidecar does not know.
+
+diff --git a/tests/postprojecttest.cpp b/tests/postprojecttest.cpp
+index e5f7283e9..77303e540 100644
+--- a/tests/postprojecttest.cpp
++++ b/tests/postprojecttest.cpp
+@@ -27,9 +27,15 @@ QString kdenliveHash(const QString &path)
+     return QString::fromLatin1(ProjectClip::calculateHash(path).first.toHex());
+ }
+ 
+-// The saved form of a project with one bin clip, as Kdenlive writes it.
+-QDomDocument projectScene(const QString &root, const QString &resource, const QString &hash)
++// The saved form of a project with one bin clip, as Kdenlive writes it. With a
++// proxy, the resource names the proxy and originalurl the clip.
++QDomDocument projectScene(const QString &root, const QString &resource, const QString &hash, const QString &proxy = QString())
+ {
++    const QString proxyProperties = proxy.isEmpty() ? QString()
++                                                    : QStringLiteral(R"(
++  <property name="kdenlive:proxy">%1</property>
++  <property name="kdenlive:originalurl">%2</property>)")
++                                                          .arg(proxy, resource);
+     const QString xml = QStringLiteral(R"(<?xml version="1.0" encoding="utf-8"?>
+ <mlt LC_NUMERIC="C" producer="main_bin" root="%1" version="7.40.0">
+  <chain id="chain0" out="100">
+@@ -38,7 +44,7 @@ QDomDocument projectScene(const QString &root, const QString &resource, const QS
+   <property name="kdenlive:id">2</property>
+   <property name="kdenlive:clipname">interview</property>
+   <property name="kdenlive:control_uuid">%3</property>
+-  <property name="kdenlive:file_hash">%4</property>
++  <property name="kdenlive:file_hash">%4</property>%5
+  </chain>
+  <playlist id="main_bin">
+   <property name="kdenlive:docproperties.documentid">1700000000000</property>
+@@ -46,7 +52,7 @@ QDomDocument projectScene(const QString &root, const QString &resource, const QS
+  </playlist>
+ </mlt>
+ )")
+-                            .arg(root, resource, ControlUuid, hash);
++                            .arg(root, proxy.isEmpty() ? resource : proxy, ControlUuid, hash, proxyProperties);
+     QDomDocument doc;
+     REQUIRE(doc.setContent(xml));
+     return doc;
+@@ -89,6 +95,41 @@ DocumentChecker::DocumentResource checkMissingClip(const QString &projectPath, Q
+     return {};
+ }
+ 
++postproject::Production openSidecar(const QString &projectFolder)
++{
++    return postproject::Production::open(QString(projectFolder + QStringLiteral("/film.pproj")).toStdString()).value();
++}
++
++postproject::Uuid clipAsset(const postproject::Production &production)
++{
++    const auto assets =
++        production.findByExternalIdentifier("https://postproject.org/id/application", ControlUuid.toStdString(), "org.kde.kdenlive:control_uuid").value();
++    REQUIRE(assets.size() == 1);
++    return assets.front().id;
++}
++
++std::vector<postproject::Representation> recordedProxies(const postproject::Production &production)
++{
++    std::vector<postproject::Representation> proxies;
++    for (auto &representation : production.representations(clipAsset(production)).value()) {
++        if (representation.kind == postproject::RepresentationKind::proxy) {
++            proxies.push_back(std::move(representation));
++        }
++    }
++    return proxies;
++}
++
++std::vector<postproject::Job> proxyJobs(const postproject::Production &production)
++{
++    return production.jobs(100, std::nullopt, std::nullopt, std::string_view("org.kde.kdenlive:generate-proxy")).value().items;
++}
++
++// Assertions of the render arguments that Kdenlive records on proxy activities.
++std::vector<postproject::MetadataAssertion> recordedArguments(const postproject::Production &production)
++{
++    return production.queryMetadata("https://postproject.org/ns/kdenlive/1", "arguments", 100).value().items;
++}
++
+ } // namespace
+ 
+ TEST_CASE("Relink missing clips through a PostProject sidecar", "[PostProject]")
+@@ -246,3 +287,183 @@ TEST_CASE("Relink missing clips through a PostProject sidecar", "[PostProject]")
+         CHECK(item.status == DocumentChecker::MissingStatus::Missing);
+     }
+ }
++
++TEST_CASE("Record proxies as managed artifacts in a PostProject sidecar", "[PostProject]")
++{
++    QTemporaryDir temporary;
++    REQUIRE(temporary.isValid());
++    QDir base(temporary.path());
++    REQUIRE(base.mkpath(QStringLiteral("film/rushes")));
++    REQUIRE(base.mkpath(QStringLiteral("film/proxy")));
++    const QString projectFolder = QDir(base.filePath(QStringLiteral("film"))).canonicalPath();
++    const QString projectPath = projectFolder + QStringLiteral("/film.kdenlive");
++    const QString clipPath = projectFolder + QStringLiteral("/rushes/interview.mkv");
++    REQUIRE(QFile::copy(ClipSource, clipPath));
++    const QString hash = kdenliveHash(clipPath);
++    // Kdenlive names a proxy after its source's hash.
++    const QString proxyPath = projectFolder + QStringLiteral("/proxy/") + hash + QStringLiteral(".mkv");
++    const QString otherMedia = sourcesPath + QStringLiteral("/dataset/red.mp4");
++    PostProjectSidecar::recordProject(projectPath, projectScene(projectFolder, QStringLiteral("rushes/interview.mkv"), hash));
++
++    // Renders the clip's proxy as Kdenlive's proxy task does; a copy of other
++    // media stands in for ffmpeg's output.
++    const auto renderProxy = [&]() {
++        PostProjectSidecar::ProxyJob job(projectPath, ControlUuid, clipPath);
++        REQUIRE(job.isActive());
++        QFile::remove(proxyPath);
++        REQUIRE(QFile::copy(otherMedia, proxyPath));
++        job.succeed(proxyPath, QStringLiteral("/usr/bin/ffmpeg"),
++                    {QStringLiteral("-i"), clipPath, QStringLiteral("-vf"), QStringLiteral("scale=640:-2"), proxyPath});
++    };
++
++    SECTION("A render is recorded as a completed job with its activity")
++    {
++        renderProxy();
++
++        const auto production = openSidecar(projectFolder);
++        const auto jobs = proxyJobs(production);
++        REQUIRE(jobs.size() == 1);
++        CHECK(jobs.front().state == postproject::JobState::succeeded);
++        const auto proxies = recordedProxies(production);
++        REQUIRE(proxies.size() == 1);
++        REQUIRE(jobs.front().completion.has_value());
++        CHECK(jobs.front().completion->representation_id == proxies.front().id);
++        CHECK(postproject::locatorFilePath(proxies.front().resources.front().locators.front().uri).value() == proxyPath.toStdString());
++
++        const auto producers = production.activitiesProducing(proxies.front().id).value();
++        REQUIRE(producers.size() == 1);
++        REQUIRE(producers.front().tool.has_value());
++        CHECK(producers.front().tool->name == "ffmpeg");
++        const auto arguments = recordedArguments(production);
++        REQUIRE(arguments.size() == 1);
++        CHECK(arguments.front().target == postproject::ObjectRef{postproject::ObjectKind::activity, producers.front().id});
++        CHECK(production.evaluateArtifact(proxies.front().id).value().state == postproject::ArtifactKnowledgeState::current);
++        CHECK(production.artifactReproducibility(proxies.front().id).value().reproducible);
++    }
++
++    SECTION("A proxy of a replaced clip is reported stale on open and rebuilt")
++    {
++        renderProxy();
++        REQUIRE(QFile::remove(clipPath));
++        REQUIRE(QFile::copy(otherMedia, clipPath));
++
++        QDomDocument doc = projectScene(projectFolder, QStringLiteral("rushes/interview.mkv"), hash, proxyPath);
++        DocumentChecker checker(QUrl::fromLocalFile(projectPath), doc);
++        REQUIRE(checker.hasErrorInProject());
++        const auto items = checker.resourceItems();
++        REQUIRE(items.size() == 1);
++        CHECK(items.front().type == DocumentChecker::MissingType::Proxy);
++        CHECK(items.front().status == DocumentChecker::MissingStatus::Reload);
++        CHECK(items.front().originalFilePath == proxyPath);
++
++        KdenliveTests::applyDocumentCheckerFixes(checker);
++        const QDomElement chain = doc.elementsByTagName(QStringLiteral("chain")).item(0).toElement();
++        CHECK(Xml::getXmlProperty(chain, QStringLiteral("kdenlive:proxy")) == QStringLiteral("-"));
++        CHECK(Xml::getXmlProperty(chain, QStringLiteral("resource")) == QStringLiteral("rushes/interview.mkv"));
++        CHECK(chain.attribute(QStringLiteral("_replaceproxy")) == QStringLiteral("1"));
++        // Kdenlive hashes the clip again, so the new proxy gets a name of its own.
++        CHECK(Xml::getXmlProperty(chain, QStringLiteral("kdenlive:file_hash")).isEmpty());
++
++        const auto production = openSidecar(projectFolder);
++        CHECK(production.evaluateArtifact(recordedProxies(production).front().id).value().state == postproject::ArtifactKnowledgeState::stale);
++    }
++
++    SECTION("An unchanged clip keeps its proxy")
++    {
++        renderProxy();
++
++        QDomDocument doc = projectScene(projectFolder, QStringLiteral("rushes/interview.mkv"), hash, proxyPath);
++        DocumentChecker checker(QUrl::fromLocalFile(projectPath), doc);
++        CHECK_FALSE(checker.hasErrorInProject());
++    }
++
++    SECTION("A proxy rendered again at its old path replaces the recorded one")
++    {
++        renderProxy();
++        renderProxy();
++
++        const auto production = openSidecar(projectFolder);
++        const auto jobs = proxyJobs(production);
++        REQUIRE(jobs.size() == 2);
++        std::vector<postproject::Uuid> located;
++        for (const auto &proxy : recordedProxies(production)) {
++            if (!proxy.resources.front().locators.empty()) {
++                located.push_back(proxy.id);
++            }
++        }
++        REQUIRE(located.size() == 1);
++        bool latest = false;
++        for (const auto &job : jobs) {
++            latest = latest || (job.completion.has_value() && job.completion->representation_id == located.front());
++        }
++        CHECK(latest);
++    }
++
++    SECTION("A failed render leaves a failed job and no proxy")
++    {
++        {
++            PostProjectSidecar::ProxyJob job(projectPath, ControlUuid, clipPath);
++            REQUIRE(job.isActive());
++            job.fail(QStringLiteral("Conversion failed!"));
++        }
++
++        const auto production = openSidecar(projectFolder);
++        const auto jobs = proxyJobs(production);
++        REQUIRE(jobs.size() == 1);
++        CHECK(jobs.front().state == postproject::JobState::failed);
++        CHECK(jobs.front().failure_diagnostic == std::optional<std::string>("Conversion failed!"));
++        CHECK(recordedProxies(production).empty());
++    }
++
++    SECTION("An abandoned render cancels its job")
++    {
++        {
++            PostProjectSidecar::ProxyJob job(projectPath, ControlUuid, clipPath);
++            REQUIRE(job.isActive());
++        }
++
++        const auto jobs = proxyJobs(openSidecar(projectFolder));
++        REQUIRE(jobs.size() == 1);
++        CHECK(jobs.front().state == postproject::JobState::cancelled);
++    }
++
++    SECTION("Saving records a proxy that Kdenlive made before the clip was recorded")
++    {
++        REQUIRE(QFile::remove(projectFolder + QStringLiteral("/film.pproj")));
++        REQUIRE(QFile::copy(otherMedia, proxyPath));
++        PostProjectSidecar::recordProject(projectPath, projectScene(projectFolder, QStringLiteral("rushes/interview.mkv"), hash, proxyPath));
++
++        const auto production = openSidecar(projectFolder);
++        const auto proxies = recordedProxies(production);
++        REQUIRE(proxies.size() == 1);
++        CHECK(proxyJobs(production).empty());
++        // No render was observed: the activity names no tool or arguments.
++        const auto producers = production.activitiesProducing(proxies.front().id).value();
++        REQUIRE(producers.size() == 1);
++        CHECK(producers.front().kind == "org.kde.kdenlive:generate-proxy");
++        CHECK_FALSE(producers.front().tool.has_value());
++        CHECK(production.evaluateArtifact(proxies.front().id).value().state == postproject::ArtifactKnowledgeState::current);
++        CHECK_FALSE(production.artifactReproducibility(proxies.front().id).value().reproducible);
++
++        // Saving again records nothing new.
++        PostProjectSidecar::recordProject(projectPath, projectScene(projectFolder, QStringLiteral("rushes/interview.mkv"), hash, proxyPath));
++        CHECK(recordedProxies(openSidecar(projectFolder)).size() == 1);
++    }
++
++    SECTION("A proxy named after other content is not recorded on save")
++    {
++        const QString otherProxy = projectFolder + QStringLiteral("/proxy/0123456789abcdef0123456789abcdef.mkv");
++        REQUIRE(QFile::copy(otherMedia, otherProxy));
++        PostProjectSidecar::recordProject(projectPath, projectScene(projectFolder, QStringLiteral("rushes/interview.mkv"), hash, otherProxy));
++
++        CHECK(recordedProxies(openSidecar(projectFolder)).empty());
++    }
++
++    SECTION("Without a sidecar that knows the clip no job is recorded")
++    {
++        CHECK_FALSE(PostProjectSidecar::ProxyJob(projectFolder + QStringLiteral("/other.kdenlive"), ControlUuid, clipPath).isActive());
++        CHECK_FALSE(PostProjectSidecar::ProxyJob(projectPath, QStringLiteral("unknown"), clipPath).isActive());
++        CHECK_FALSE(PostProjectSidecar::ProxyJob(QString(), ControlUuid, clipPath).isActive());
++        CHECK(proxyJobs(openSidecar(projectFolder)).empty());
++    }
++}

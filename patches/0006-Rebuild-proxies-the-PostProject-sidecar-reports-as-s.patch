@@ -1,0 +1,115 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Erich Seifert <dev@erichseifert.de>
+Date: Mon, 28 Sep 2026 09:08:38 +0200
+Subject: [PATCH 6/7] Rebuild proxies the PostProject sidecar reports as stale
+
+Kdenlive checks a proxied clip's hash only when its proxy is missing,
+so a replaced source keeps playing its old proxy. When a project
+opens, ask the sidecar about each proxy whose clip it knows. A source
+whose content no longer matches the sidecar is observed first, and a
+proxy that PostProject then evaluates as stale is offered for
+rebuilding in the relink dialog. The clip is hashed again, so the new
+proxy gets a name of its own.
+
+diff --git a/src/doc/documentchecker.cpp b/src/doc/documentchecker.cpp
+index 956ffc16b..3dfccb7d2 100644
+--- a/src/doc/documentchecker.cpp
++++ b/src/doc/documentchecker.cpp
+@@ -1115,6 +1115,17 @@ QString DocumentChecker::getMissingProducers(QDomElement &e, const QDomNodeList
+             item.originalFilePath = proxy;
+             item.type = MissingType::Proxy;
+             m_items.push_back(item);
++#ifdef HAVE_POSTPROJECT
++        } else if (!slideshow &&
++                   PostProjectSidecar::isProxyStale(m_url.toLocalFile(), Xml::getXmlProperty(e, QStringLiteral("kdenlive:control_uuid")), original, proxy)) {
++            // The proxy was made from content the clip no longer has. Rebuild it,
++            // and hash the clip again so the new proxy gets a name of its own.
++            Xml::removeXmlProperty(e, QStringLiteral("kdenlive:file_hash"));
++            item.originalFilePath = proxy;
++            item.type = MissingType::Proxy;
++            item.status = MissingStatus::Reload;
++            m_items.push_back(item);
++#endif
+         }
+         return resource;
+     }
+diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
+index b6683e542..40a6f17fd 100644
+--- a/src/doc/postprojectsidecar.cpp
++++ b/src/doc/postprojectsidecar.cpp
+@@ -416,6 +416,33 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
+     return paths;
+ }
+ 
++// A clip's recorded proxy is stale when the source no longer has the content
++// the proxy was made from. A changed source is observed first, so PostProject's
++// artifact evaluation decides.
++pp::Result<bool> proxyIsStale(const QString &sidecar, const std::string &controlUuid, const QString &sourcePath, const QString &proxyPath)
++{
++    POSTPROJECT_TRY_ASSIGN(pp::Production production, pp::Production::open(utf8(sidecar)));
++    POSTPROJECT_TRY_ASSIGN(const std::optional<pp::Uuid> assetId, findClipAsset(production, controlUuid));
++    if (!assetId) {
++        return false;
++    }
++    POSTPROJECT_TRY_ASSIGN(const std::vector<pp::Representation> representations, production.representations(*assetId));
++    const std::optional<pp::Representation> source = clipRepresentation(representations);
++    const std::optional<pp::Representation> proxy = proxyAt(representations, locatorFor(proxyPath));
++    if (!source || !proxy) {
++        return false;
++    }
++    POSTPROJECT_TRY_ASSIGN(const bool sourceChanged, contentChanged(production, source->resources.front(), sourcePath));
++    if (sourceChanged) {
++        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, production.beginTransaction());
++        POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Open project")));
++        POSTPROJECT_TRY(transaction.observeResourceContent(source->resources.front().id, utf8(sourcePath)));
++        POSTPROJECT_TRY(transaction.commit());
++    }
++    POSTPROJECT_TRY_ASSIGN(const pp::ArtifactEvaluation evaluation, production.evaluateArtifact(proxy->id));
++    return evaluation.state == pp::ArtifactKnowledgeState::stale;
++}
++
+ // The end of a render log, within PostProject's bound for a failure diagnostic.
+ std::string failureDiagnostic(const QString &log)
+ {
+@@ -492,6 +519,20 @@ void PostProjectSidecar::ClipLocator::resolveAll()
+     m_located = *std::move(located);
+ }
+ 
++bool PostProjectSidecar::isProxyStale(const QString &projectPath, const QString &controlUuid, const QString &sourcePath, const QString &proxyPath)
++{
++    const QString path = sidecarPath(projectPath);
++    if (controlUuid.isEmpty() || !QFileInfo::exists(path)) {
++        return false;
++    }
++    const pp::Result<bool> stale = proxyIsStale(path, utf8(controlUuid), sourcePath, proxyPath);
++    if (!stale.has_value()) {
++        logFailure(path, "could not evaluate a proxy", stale.error());
++        return false;
++    }
++    return *stale;
++}
++
+ PostProjectSidecar::ProxyJob::ProxyJob(const QString &projectPath, const QString &controlUuid, const QString &sourcePath)
+ {
+     // An unsaved project has no sidecar.
+diff --git a/src/doc/postprojectsidecar.h b/src/doc/postprojectsidecar.h
+index c83838e74..3c512049b 100644
+--- a/src/doc/postprojectsidecar.h
++++ b/src/doc/postprojectsidecar.h
+@@ -45,6 +45,16 @@ QString sidecarPath(const QString &projectPath);
+  */
+ void recordProject(const QString &projectPath, const QDomDocument &scene);
+ 
++/**
++ * @brief Reports whether the sidecar knows a clip's proxy to be stale.
++ *
++ * The proxy is stale when the source's content differs from the content the
++ * proxy was made from. A source whose content changed is observed in the
++ * sidecar first. Unknown clips, unrecorded proxies, and every failure yield
++ * false, so Kdenlive keeps its proxy as before.
++ */
++bool isProxyStale(const QString &projectPath, const QString &controlUuid, const QString &sourcePath, const QString &proxyPath);
++
+ /**
+  * @brief One proxy render, recorded through PostProject's job protocol with
+  * Kdenlive as the worker.

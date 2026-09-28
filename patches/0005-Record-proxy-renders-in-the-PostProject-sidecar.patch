@@ -1,0 +1,536 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Erich Seifert <dev@erichseifert.de>
+Date: Mon, 28 Sep 2026 09:08:28 +0200
+Subject: [PATCH 5/7] Record proxy renders in the PostProject sidecar
+
+When a proxy is rendered for a clip the sidecar knows, request a proxy
+job and claim it with Kdenlive as the worker, renewing the claim while
+ffmpeg or melt runs. A finished render records the proxy as a
+representation of the clip, together with an activity naming the tool
+and its arguments, and completes the job in the same transaction. A
+failed render fails the job with the end of its log, and an abandoned
+one cancels it.
+
+Proxies made before their clip was recorded, such as those of a
+project saved for the first time, are recorded on save when their name
+carries the clip's present Kdenlive hash.
+
+diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
+index 98758f0bc..b6683e542 100644
+--- a/src/doc/postprojectsidecar.cpp
++++ b/src/doc/postprojectsidecar.cpp
+@@ -6,13 +6,16 @@
+ 
+ #include "postprojectsidecar.h"
+ #include "bin/binplaylist.hpp"
++#include "bin/projectclip.h"
+ #include "kdenlive_debug.h"
+ #include "xml/xml.hpp"
+ #include <config-kdenlive.h>
+ 
++#include <QDateTime>
+ #include <QDir>
+ #include <QDomDocument>
+ #include <QFileInfo>
++#include <QProcess>
+ 
+ #include <cstdint>
+ #include <map>
+@@ -38,6 +41,14 @@ constexpr const char *IdentifierQualifier = "org.kde.kdenlive:control_uuid";
+ // fingerprint next to PostProject's. PostProject stores it but never computes it.
+ constexpr const char *KdenliveHashAlgorithm = "kdenlive-file-hash";
+ constexpr std::uint16_t KdenliveHashVersion = 1;
++// Kdenlive renders proxies with its own settings, so its proxy jobs have a kind
++// of their own that no other worker takes for a generic proxy request.
++constexpr const char *ProxyJobKind = "org.kde.kdenlive:generate-proxy";
++constexpr const char *ProxyVocabulary = "https://postproject.org/ns/kdenlive/1";
++// A claim expires unless the render renews it, so a crashed Kdenlive leaves no
++// job claimed for long.
++constexpr std::int64_t ClaimLeaseMicros = 5 * 60 * 1000000LL;
++constexpr int ClaimRenewalMillis = 60 * 1000;
+ 
+ struct BinClip
+ {
+@@ -45,6 +56,7 @@ struct BinClip
+     QString path;
+     QString name;
+     QByteArray hash;
++    QString proxy;
+ };
+ 
+ std::string utf8(const QString &value)
+@@ -74,6 +86,16 @@ bool isInside(const QString &path, const QString &directory)
+     return path == directory || path.startsWith(directory + QLatin1Char('/'));
+ }
+ 
++std::int64_t nowMicros()
++{
++    return QDateTime::currentMSecsSinceEpoch() * 1000;
++}
++
++pp::ToolIdentity kdenliveTool()
++{
++    return {"Kdenlive", std::string(KDENLIVE_VERSION), std::nullopt};
++}
++
+ void logFailure(const QString &sidecar, const char *action, const pp::Error &error)
+ {
+     qCWarning(KDENLIVE_LOG) << "PostProject sidecar" << sidecar << action << ":" << fromUtf8(error.message());
+@@ -134,7 +156,11 @@ std::vector<BinClip> fileBackedBinClips(const QString &projectPath, const QDomDo
+                 name = file.fileName();
+             }
+             const QByteArray hash = QByteArray::fromHex(Xml::getXmlProperty(element, QStringLiteral("kdenlive:file_hash")).toLatin1());
+-            clips.push_back({controlUuid, file.canonicalFilePath(), name, hash});
++            // "-" marks a proxy the user disabled.
++            const QString proxy = Xml::getXmlProperty(element, QStringLiteral("kdenlive:proxy"));
++            const QFileInfo proxyFile(QDir(root), proxy);
++            clips.push_back(
++                {controlUuid, file.canonicalFilePath(), name, hash, proxy.length() > 1 && proxyFile.isFile() ? proxyFile.canonicalFilePath() : QString()});
+         }
+     }
+     return clips;
+@@ -170,6 +196,34 @@ pp::Result<std::optional<pp::Representation>> clipRepresentation(const pp::Produ
+     return clipRepresentation(std::move(representations));
+ }
+ 
++// The clip's proxy representation whose file is at a locator.
++std::optional<pp::Representation> proxyAt(const std::vector<pp::Representation> &representations, const std::string &locator)
++{
++    for (const pp::Representation &representation : representations) {
++        if (representation.kind != pp::RepresentationKind::proxy || representation.resources.size() != 1) {
++            continue;
++        }
++        for (const pp::Locator &known : representation.resources.front().locators) {
++            if (known.uri == locator) {
++                return representation;
++            }
++        }
++    }
++    return std::nullopt;
++}
++
++// Whether the file at path no longer has the content recorded for a resource.
++pp::Result<bool> contentChanged(const pp::Production &production, const pp::Resource &resource, const QString &path)
++{
++    POSTPROJECT_TRY_ASSIGN(const pp::ContentVerification verification, production.verifyResource(resource.id, utf8(path)));
++    return verification == pp::ContentVerification::differs;
++}
++
++pp::RevisionContext revisionContext(const char *summary)
++{
++    return {pp::OriginIdentity{"Kdenlive", std::string(KDENLIVE_VERSION), std::nullopt}, std::string(summary)};
++}
++
+ bool hasKdenliveHash(const pp::Resource &resource, const QByteArray &hash)
+ {
+     for (const pp::Fingerprint &fingerprint : resource.fingerprints) {
+@@ -245,15 +299,52 @@ pp::Result<bool> stageKdenliveHashes(const pp::Production &production, pp::Trans
+     return changed;
+ }
+ 
++// Records proxies that Kdenlive made while their clip was not yet recorded, such
++// as every proxy of a project saved for the first time. Kdenlive names a proxy
++// after its source's hash, so a proxy named after the clip's present hash was
++// made from the clip's present content. No render was observed, so the
++// activity names neither the tool nor its arguments.
++pp::Result<bool> stageAdoptedProxies(const pp::Production &production, pp::Transaction &transaction, const std::vector<BinClip> &clips)
++{
++    bool changed = false;
++    for (const BinClip &clip : clips) {
++        if (clip.proxy.isEmpty() || clip.hash.isEmpty() || QFileInfo(clip.proxy).completeBaseName().toLatin1() != clip.hash.toHex()) {
++            continue;
++        }
++        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::Uuid> assetId, findClipAsset(production, clip.controlUuid));
++        if (!assetId) {
++            continue;
++        }
++        POSTPROJECT_TRY_ASSIGN(const std::vector<pp::Representation> representations, production.representations(*assetId));
++        const std::optional<pp::Representation> source = clipRepresentation(representations);
++        if (!source || proxyAt(representations, locatorFor(clip.proxy)) || ProjectClip::calculateHash(clip.path).first != clip.hash) {
++            continue;
++        }
++        POSTPROJECT_TRY_ASSIGN(const bool sourceChanged, contentChanged(production, source->resources.front(), clip.path));
++        if (sourceChanged) {
++            POSTPROJECT_TRY(transaction.observeResourceContent(source->resources.front().id, utf8(clip.path)));
++        }
++        POSTPROJECT_TRY_ASSIGN(const pp::Uuid proxyId, transaction.addSingleFileRepresentation(*assetId, pp::RepresentationKind::proxy, utf8(clip.proxy)));
++        pp::ActivitySpec activity;
++        activity.kind = ProxyJobKind;
++        activity.inputs = {{source->id, std::nullopt}};
++        activity.outputs = {{proxyId, std::nullopt}};
++        POSTPROJECT_TRY(transaction.createActivity(activity));
++        changed = true;
++    }
++    return changed;
++}
++
+ pp::Result<void> recordClips(const QString &sidecar, const QString &projectPath, const std::vector<BinClip> &clips)
+ {
+     POSTPROJECT_TRY_ASSIGN(pp::Production production, QFileInfo::exists(sidecar)
+                                                           ? pp::Production::open(utf8(sidecar))
+                                                           : pp::Production::create(utf8(sidecar), utf8(QFileInfo(projectPath).completeBaseName())));
+-    const pp::RevisionContext context{pp::OriginIdentity{"Kdenlive", std::string(KDENLIVE_VERSION), std::nullopt}, std::string("Save project")};
++    const pp::RevisionContext context = revisionContext("Save project");
+ 
+-    // New clips must be committed before their resources can take a host hash.
+-    for (const auto stage : {&stageClips, &stageKdenliveHashes}) {
++    // New clips must be committed before their resources can take a host hash
++    // or their proxies can be recorded.
++    for (const auto stage : {&stageClips, &stageKdenliveHashes, &stageAdoptedProxies}) {
+         POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, production.beginTransaction());
+         POSTPROJECT_TRY(transaction.setRevisionContext(context));
+         POSTPROJECT_TRY_ASSIGN(const bool changed, stage(production, transaction, clips));
+@@ -325,8 +416,35 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
+     return paths;
+ }
+ 
++// The end of a render log, within PostProject's bound for a failure diagnostic.
++std::string failureDiagnostic(const QString &log)
++{
++    constexpr qsizetype MaxBytes = 4096;
++    QByteArray diagnostic = log.trimmed().toUtf8().replace('\0', ' ');
++    if (diagnostic.size() > MaxBytes) {
++        qsizetype start = diagnostic.size() - MaxBytes;
++        while (start < diagnostic.size() && (diagnostic.at(start) & 0xC0) == 0x80) {
++            ++start;
++        }
++        diagnostic = diagnostic.mid(start);
++    }
++    return diagnostic.isEmpty() ? std::string("Proxy render failed") : diagnostic.toStdString();
++}
++
+ } // namespace
+ 
++struct PostProjectSidecar::ProxyJob::Claim
++{
++    QString sidecar;
++    pp::Production production;
++    pp::Uuid assetId;
++    pp::Uuid sourceId;
++    QString sourcePath;
++    pp::Uuid jobId;
++    pp::Uuid claimId;
++    std::int64_t startedAt;
++};
++
+ QString PostProjectSidecar::sidecarPath(const QString &projectPath)
+ {
+     const QFileInfo project(projectPath);
+@@ -373,3 +491,157 @@ void PostProjectSidecar::ClipLocator::resolveAll()
+     }
+     m_located = *std::move(located);
+ }
++
++PostProjectSidecar::ProxyJob::ProxyJob(const QString &projectPath, const QString &controlUuid, const QString &sourcePath)
++{
++    // An unsaved project has no sidecar.
++    const QString sidecar = projectPath.isEmpty() ? QString() : sidecarPath(projectPath);
++    if (sidecar.isEmpty() || controlUuid.isEmpty() || !QFileInfo::exists(sidecar)) {
++        return;
++    }
++    const pp::Result<void> claimed = [&]() -> pp::Result<void> {
++        POSTPROJECT_TRY_ASSIGN(pp::Production production, pp::Production::open(utf8(sidecar)));
++        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::Uuid> assetId, findClipAsset(production, utf8(controlUuid)));
++        if (!assetId) {
++            return {};
++        }
++        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::Representation> source, clipRepresentation(production, *assetId));
++        if (!source) {
++            return {};
++        }
++        POSTPROJECT_TRY_ASSIGN(const bool sourceChanged, contentChanged(production, source->resources.front(), sourcePath));
++        const std::int64_t now = nowMicros();
++        // The transaction must end before the production moves into the claim.
++        std::optional<pp::Uuid> jobId;
++        std::optional<pp::Uuid> claimId;
++        {
++            POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, production.beginTransaction());
++            POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Create proxy clip")));
++            // The proxy is made from the source as it is now.
++            if (sourceChanged) {
++                POSTPROJECT_TRY(transaction.observeResourceContent(source->resources.front().id, utf8(sourcePath)));
++            }
++            POSTPROJECT_TRY_ASSIGN(jobId, transaction.requestJob({ProxyJobKind, {source->id}, *assetId, pp::RepresentationKind::proxy, std::nullopt}));
++            POSTPROJECT_TRY_ASSIGN(claimId, transaction.claimJob(*jobId, kdenliveTool(), std::nullopt, now, now + ClaimLeaseMicros));
++            POSTPROJECT_TRY(transaction.commit());
++        }
++        m_claim.reset(new Claim{sidecar, std::move(production), *assetId, source->id, sourcePath, *jobId, *claimId, now});
++        return {};
++    }();
++    if (!claimed.has_value()) {
++        logFailure(sidecar, "could not start a proxy job", claimed.error());
++    }
++}
++
++PostProjectSidecar::ProxyJob::~ProxyJob()
++{
++    if (!m_claim) {
++        return;
++    }
++    // The render was abandoned, for example cancelled by the user.
++    const pp::Result<void> cancelled = [&]() -> pp::Result<void> {
++        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, m_claim->production.beginTransaction());
++        POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Cancel proxy clip")));
++        POSTPROJECT_TRY(transaction.cancelJob(m_claim->jobId));
++        return transaction.commit();
++    }();
++    if (!cancelled.has_value()) {
++        logFailure(m_claim->sidecar, "could not cancel a proxy job", cancelled.error());
++    }
++}
++
++bool PostProjectSidecar::ProxyJob::isActive() const
++{
++    return m_claim != nullptr;
++}
++
++void PostProjectSidecar::ProxyJob::waitForFinished(QProcess &process)
++{
++    if (!m_claim) {
++        process.waitForFinished(-1);
++        return;
++    }
++    while (!process.waitForFinished(ClaimRenewalMillis) && process.state() != QProcess::NotRunning) {
++        const pp::Result<void> renewed = [&]() -> pp::Result<void> {
++            const std::int64_t now = nowMicros();
++            POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, m_claim->production.beginTransaction());
++            POSTPROJECT_TRY(transaction.renewJobClaim(m_claim->jobId, m_claim->claimId, now, now + ClaimLeaseMicros));
++            return transaction.commit();
++        }();
++        if (!renewed.has_value()) {
++            logFailure(m_claim->sidecar, "could not renew a proxy job", renewed.error());
++        }
++    }
++}
++
++void PostProjectSidecar::ProxyJob::succeed(const QString &proxyPath, const QString &tool, const QStringList &arguments)
++{
++    if (!m_claim) {
++        return;
++    }
++    Claim &claim = *m_claim;
++    const pp::Result<void> completed = [&]() -> pp::Result<void> {
++        const std::string proxyLocator = locatorFor(proxyPath);
++        POSTPROJECT_TRY_ASSIGN(const std::vector<pp::Representation> representations, claim.production.representations(claim.assetId));
++        const std::int64_t now = nowMicros();
++        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, claim.production.beginTransaction());
++        POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Create proxy clip")));
++        // A proxy rendered over an older one: the older proxy's content is gone.
++        for (const pp::Representation &representation : representations) {
++            if (representation.kind != pp::RepresentationKind::proxy) {
++                continue;
++            }
++            for (const pp::Resource &resource : representation.resources) {
++                for (const pp::Locator &locator : resource.locators) {
++                    if (locator.uri == proxyLocator) {
++                        POSTPROJECT_TRY(transaction.retireLocator(locator.id));
++                    }
++                }
++            }
++        }
++        POSTPROJECT_TRY_ASSIGN(const pp::Uuid proxyId, transaction.addSingleFileRepresentation(claim.assetId, pp::RepresentationKind::proxy, utf8(proxyPath)));
++        pp::ActivitySpec activity;
++        activity.kind = ProxyJobKind;
++        activity.started_at_unix_micros = claim.startedAt;
++        activity.finished_at_unix_micros = now;
++        activity.tool = pp::ToolIdentity{utf8(QFileInfo(tool).fileName()), std::nullopt, std::nullopt};
++        activity.inputs = {{claim.sourceId, std::nullopt}};
++        activity.outputs = {{proxyId, std::nullopt}};
++        POSTPROJECT_TRY_ASSIGN(const pp::Uuid activityId, transaction.createActivity(activity));
++        // The arguments are the render's parameters. Machine-local paths are
++        // replaced, so the activity is enough to render the proxy again.
++        std::vector<pp::MetadataInput> values;
++        for (QString argument : arguments) {
++            argument.replace(claim.sourcePath, QStringLiteral("{source}")).replace(proxyPath, QStringLiteral("{proxy}"));
++            values.push_back(pp::MetadataInput::plainString(utf8(argument)));
++        }
++        POSTPROJECT_TRY(transaction.addMetadataValue({pp::ObjectKind::activity, activityId}, ProxyVocabulary, "arguments", pp::MetadataInput::list(values)));
++        POSTPROJECT_TRY(transaction.completeJob(claim.jobId, claim.claimId, now, proxyId, activityId));
++        return transaction.commit();
++    }();
++    if (!completed.has_value()) {
++        logFailure(claim.sidecar, "could not record a proxy", completed.error());
++        fail(fromUtf8(completed.error().message()));
++        return;
++    }
++    m_claim.reset();
++}
++
++void PostProjectSidecar::ProxyJob::fail(const QString &diagnostic)
++{
++    if (!m_claim) {
++        return;
++    }
++    const pp::Result<void> failed = [&]() -> pp::Result<void> {
++        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, m_claim->production.beginTransaction());
++        POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Create proxy clip")));
++        POSTPROJECT_TRY(transaction.failJob(m_claim->jobId, m_claim->claimId, nowMicros(), failureDiagnostic(diagnostic)));
++        return transaction.commit();
++    }();
++    if (failed.has_value()) {
++        m_claim.reset();
++    } else {
++        // The destructor cancels the job instead.
++        logFailure(m_claim->sidecar, "could not record a failed proxy job", failed.error());
++    }
++}
+diff --git a/src/doc/postprojectsidecar.h b/src/doc/postprojectsidecar.h
+index 4cf51a685..c83838e74 100644
+--- a/src/doc/postprojectsidecar.h
++++ b/src/doc/postprojectsidecar.h
+@@ -8,8 +8,12 @@
+ 
+ #include <QHash>
+ #include <QString>
++#include <QStringList>
++
++#include <memory>
+ 
+ class QDomDocument;
++class QProcess;
+ 
+ /**
+  * @brief Experimental PostProject sidecar used to relink missing clips by content.
+@@ -36,9 +40,45 @@ QString sidecarPath(const QString &projectPath);
+  * Creates the sidecar when the project has at least one such clip. Clips seen for
+  * the first time are imported and fingerprinted; a known clip whose file moved
+  * gets its new location confirmed and its vanished former locations retired.
++ * A proxy that Kdenlive made before the clip was recorded is recorded as derived
++ * from the clip when its name carries the clip's present Kdenlive hash.
+  */
+ void recordProject(const QString &projectPath, const QDomDocument &scene);
+ 
++/**
++ * @brief One proxy render, recorded through PostProject's job protocol with
++ * Kdenlive as the worker.
++ *
++ * Construction requests a proxy job for a clip recorded in the sidecar and
++ * claims it. Succeeding records the proxy as a representation of the clip
++ * together with the render activity; failing records the diagnostic. A job left
++ * unfinished is cancelled. Without a sidecar that knows the clip the job is
++ * inactive and every call does nothing.
++ */
++class ProxyJob
++{
++public:
++    ProxyJob(const QString &projectPath, const QString &controlUuid, const QString &sourcePath);
++    ~ProxyJob();
++    ProxyJob(const ProxyJob &) = delete;
++    ProxyJob &operator=(const ProxyJob &) = delete;
++
++    bool isActive() const;
++    /** @brief Waits for a render process, renewing the claim while it runs. */
++    void waitForFinished(QProcess &process);
++    /**
++     * @param tool the program that rendered the proxy
++     * @param arguments its arguments; the source and proxy paths are recorded as
++     *        {source} and {proxy}
++     */
++    void succeed(const QString &proxyPath, const QString &tool, const QStringList &arguments);
++    void fail(const QString &diagnostic);
++
++private:
++    struct Claim;
++    std::unique_ptr<Claim> m_claim;
++};
++
+ /**
+  * @brief Locates missing bin clips of one opened project by content.
+  *
+diff --git a/src/jobs/proxytask.cpp b/src/jobs/proxytask.cpp
+index 1f2344197..078ce57c9 100644
+--- a/src/jobs/proxytask.cpp
++++ b/src/jobs/proxytask.cpp
+@@ -12,6 +12,10 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+ #include "doc/kdenlivedoc.h"
+ #include "kdenlivesettings.h"
+ #include "utils/uiutils.h"
++#include <config-kdenlive.h>
++#ifdef HAVE_POSTPROJECT
++#include "doc/postprojectsidecar.h"
++#endif
+ 
+ #include <QImageReader>
+ #include <QProcess>
+@@ -68,6 +72,13 @@ void ProxyTask::run()
+     bool result = false;
+     QString source = binClip->getProducerProperty(QStringLiteral("kdenlive:originalurl"));
+     bool disable_exif = binClip->getProducerIntProperty(QStringLiteral("disable_exif")) == 1;
++#ifdef HAVE_POSTPROJECT
++    // Records the render in the project's PostProject sidecar when it knows the clip.
++    PostProjectSidecar::ProxyJob postProject(pCore->currentDoc()->url().toLocalFile(), binClip->getProducerProperty(QStringLiteral("kdenlive:control_uuid")),
++                                             source);
++    QString renderTool;
++    QStringList renderArguments;
++#endif
+ 
+     if (type == ClipType::Playlist || type == ClipType::SlideShow) {
+         // change FFmpeg params to MLT format
+@@ -202,7 +213,13 @@ void ProxyTask::run()
+         QObject::connect(&jobProcess, &QProcess::readyReadStandardError, this, &ProxyTask::processLogInfo);
+         jobProcess.start(KdenliveSettings::meltpath(), mltParameters);
+         AbstractTask::setPreferredPriority(jobProcess.processId());
++#ifdef HAVE_POSTPROJECT
++        renderTool = KdenliveSettings::meltpath();
++        renderArguments = mltParameters;
++        postProject.waitForFinished(jobProcess);
++#else
+         jobProcess.waitForFinished(-1);
++#endif
+         result = jobProcess.exitStatus() == QProcess::NormalExit;
+         QObject::disconnect(&jobProcess, &QProcess::readyReadStandardError, this, nullptr);
+         if (!result && !m_isCanceled) {
+@@ -235,6 +252,10 @@ void ProxyTask::run()
+             }
+             proxy.save(dest);
+             result = true;
++#ifdef HAVE_POSTPROJECT
++            renderTool = QStringLiteral("Kdenlive");
++            renderArguments = {QStringLiteral("proxyimagesize=%1").arg(KdenliveSettings::proxyimagesize())};
++#endif
+         } else {
+             // Image is too small to be proxied
+             m_logDetails = i18n("Image too small to be proxied.");
+@@ -416,7 +437,13 @@ void ProxyTask::run()
+         QObject::connect(this, &ProxyTask::jobCanceled, &jobProcess, &QProcess::kill, Qt::DirectConnection);
+         jobProcess.start(KdenliveSettings::ffmpegpath(), parameters, QIODevice::ReadOnly);
+         AbstractTask::setPreferredPriority(jobProcess.processId());
++#ifdef HAVE_POSTPROJECT
++        renderTool = KdenliveSettings::ffmpegpath();
++        renderArguments = parameters;
++        postProject.waitForFinished(jobProcess);
++#else
+         jobProcess.waitForFinished(-1);
++#endif
+         result = jobProcess.exitStatus() == QProcess::NormalExit && jobProcess.exitCode() == 0;
+         QObject::disconnect(&jobProcess, &QProcess::readyReadStandardError, this, nullptr);
+         if (!result && !m_isCanceled) {
+@@ -430,6 +457,9 @@ void ProxyTask::run()
+             QFile::remove(dest);
+             // File was not created
+             result = false;
++#ifdef HAVE_POSTPROJECT
++            postProject.fail(m_logDetails.isEmpty() ? QStringLiteral("The proxy file is empty.") : m_logDetails);
++#endif
+             QMetaObject::invokeMethod(pCore.get(), "displayBinLogMessage", Qt::QueuedConnection, Q_ARG(QString, i18n("Failed to create proxy clip.")),
+                                       Q_ARG(int, int(KMessageWidget::Warning)), Q_ARG(QString, m_logDetails));
+             if (binClip) {
+@@ -438,12 +468,18 @@ void ProxyTask::run()
+             }
+         } else if (binClip) {
+             // Job successful
++#ifdef HAVE_POSTPROJECT
++            postProject.succeed(dest, renderTool, renderArguments);
++#endif
+             QMetaObject::invokeMethod(binClip.get(), "updateProxyProducer", Qt::BlockingQueuedConnection, Q_ARG(QString, dest));
+         }
+     } else {
+         // Proxy process crashed of failed
+         QFile::remove(dest);
+         if (!m_isCanceled) {
++#ifdef HAVE_POSTPROJECT
++            postProject.fail(m_logDetails);
++#endif
+             QMetaObject::invokeMethod(pCore.get(), "displayBinLogMessage", Qt::QueuedConnection, Q_ARG(QString, i18n("Failed to create proxy clip.")),
+                                       Q_ARG(int, int(KMessageWidget::Warning)), Q_ARG(QString, m_logDetails));
+             if (binClip) {
