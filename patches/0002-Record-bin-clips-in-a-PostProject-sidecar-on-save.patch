@@ -71,10 +71,10 @@ index fa23b1019..4eec86075 100644
      const QString timeStamp = info.lastModified().toString(QStringLiteral("yyyy-MM-dd-hh-mm"));
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
 new file mode 100644
-index 000000000..bc0d2670e
+index 000000000..98758f0bc
 --- /dev/null
 +++ b/src/doc/postprojectsidecar.cpp
-@@ -0,0 +1,430 @@
+@@ -0,0 +1,375 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 Erich Seifert <dev@erichseifert.de>
 +
@@ -100,7 +100,8 @@ index 000000000..bc0d2670e
 +#include <vector>
 +
 +// The PostProject C++ wrapper returns results instead of throwing, so this file
-+// builds with Kdenlive's default -fno-exceptions.
++// builds with Kdenlive's default -fno-exceptions. POSTPROJECT_TRY and
++// POSTPROJECT_TRY_ASSIGN return a failed result's error to the caller.
 +#include <postproject/postproject.hpp>
 +
 +namespace pp = postproject;
@@ -137,14 +138,12 @@ index 000000000..bc0d2670e
 +// string. Locators are compared only in PostProject's own spelling.
 +std::string locatorFor(const QString &path)
 +{
-+    pp::Result<std::string> uri = pp::fileLocator(utf8(path));
-+    return uri.ok() ? *std::move(uri) : std::string();
++    return pp::fileLocator(utf8(path)).value_or(std::string());
 +}
 +
 +QString pathFor(const std::string &uri)
 +{
-+    pp::Result<std::string> path = pp::locatorFilePath(uri);
-+    return path.ok() ? fromUtf8(*path) : QString();
++    return pp::locatorFilePath(uri).transform(fromUtf8).value_or(QString());
 +}
 +
 +bool isInside(const QString &path, const QString &directory)
@@ -221,11 +220,8 @@ index 000000000..bc0d2670e
 +// One lookup: the qualifier separates Kdenlive's identifiers from other hosts'.
 +pp::Result<std::optional<pp::Uuid>> findClipAsset(const pp::Production &production, const std::string &controlUuid)
 +{
-+    pp::Result<std::vector<pp::ObjectRef>> objects = production.findByExternalIdentifier(IdentifierScheme, controlUuid, IdentifierQualifier);
-+    if (!objects.ok()) {
-+        return objects.error();
-+    }
-+    for (const pp::ObjectRef &object : *objects) {
++    POSTPROJECT_TRY_ASSIGN(const std::vector<pp::ObjectRef> objects, production.findByExternalIdentifier(IdentifierScheme, controlUuid, IdentifierQualifier));
++    for (const pp::ObjectRef &object : objects) {
 +        if (object.kind == pp::ObjectKind::asset) {
 +            return std::optional<pp::Uuid>(object.id);
 +        }
@@ -247,11 +243,8 @@ index 000000000..bc0d2670e
 +
 +pp::Result<std::optional<pp::Representation>> clipRepresentation(const pp::Production &production, const pp::Uuid &assetId)
 +{
-+    pp::Result<std::vector<pp::Representation>> representations = production.representations(assetId);
-+    if (!representations.ok()) {
-+        return representations.error();
-+    }
-+    return clipRepresentation(*std::move(representations));
++    POSTPROJECT_TRY_ASSIGN(std::vector<pp::Representation> representations, production.representations(assetId));
++    return clipRepresentation(std::move(representations));
 +}
 +
 +bool hasKdenliveHash(const pp::Resource &resource, const QByteArray &hash)
@@ -269,31 +262,19 @@ index 000000000..bc0d2670e
 +{
 +    bool changed = false;
 +    for (const BinClip &clip : clips) {
-+        pp::Result<std::optional<pp::Uuid>> assetId = findClipAsset(production, clip.controlUuid);
-+        if (!assetId.ok()) {
-+            return assetId.error();
-+        }
-+        if (!assetId->has_value()) {
-+            pp::Result<pp::Uuid> imported = transaction.importMedia(utf8(clip.path), utf8(clip.name));
-+            if (!imported.ok()) {
-+                return imported.error();
-+            }
-+            const pp::Result<void> identified =
-+                transaction.addExternalIdentifier({pp::ObjectKind::asset, *imported}, {IdentifierScheme, clip.controlUuid, std::string(IdentifierQualifier)});
-+            if (!identified.ok()) {
-+                return identified.error();
-+            }
++        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::Uuid> assetId, findClipAsset(production, clip.controlUuid));
++        if (!assetId) {
++            POSTPROJECT_TRY_ASSIGN(const pp::Uuid imported, transaction.importMedia(utf8(clip.path), utf8(clip.name)));
++            POSTPROJECT_TRY(
++                transaction.addExternalIdentifier({pp::ObjectKind::asset, imported}, {IdentifierScheme, clip.controlUuid, std::string(IdentifierQualifier)}));
 +            changed = true;
 +            continue;
 +        }
-+        pp::Result<std::optional<pp::Representation>> representation = clipRepresentation(production, **assetId);
-+        if (!representation.ok()) {
-+            return representation.error();
-+        }
-+        if (!representation->has_value()) {
++        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::Representation> representation, clipRepresentation(production, *assetId));
++        if (!representation) {
 +            continue;
 +        }
-+        const pp::Resource &resource = (*representation)->resources.front();
++        const pp::Resource &resource = representation->resources.front();
 +        const std::string current = locatorFor(clip.path);
 +        bool known = false;
 +        for (const pp::Locator &locator : resource.locators) {
@@ -302,16 +283,10 @@ index 000000000..bc0d2670e
 +        if (!known && !current.empty()) {
 +            // Kdenlive relinked the clip: record where it is now, and retire the
 +            // former locations whose files are gone.
-+            const pp::Result<void> confirmed = transaction.confirmLocator(resource.id, current);
-+            if (!confirmed.ok()) {
-+                return confirmed.error();
-+            }
++            POSTPROJECT_TRY(transaction.confirmLocator(resource.id, current));
 +            for (const pp::Locator &locator : resource.locators) {
 +                if (!QFileInfo::exists(pathFor(locator.uri))) {
-+                    const pp::Result<void> retired = transaction.retireLocator(locator.id);
-+                    if (!retired.ok()) {
-+                        return retired.error();
-+                    }
++                    POSTPROJECT_TRY(transaction.retireLocator(locator.id));
 +                }
 +            }
 +            changed = true;
@@ -330,135 +305,58 @@ index 000000000..bc0d2670e
 +        if (clip.hash.isEmpty()) {
 +            continue;
 +        }
-+        pp::Result<std::optional<pp::Uuid>> assetId = findClipAsset(production, clip.controlUuid);
-+        if (!assetId.ok()) {
-+            return assetId.error();
-+        }
-+        if (!assetId->has_value()) {
++        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::Uuid> assetId, findClipAsset(production, clip.controlUuid));
++        if (!assetId) {
 +            continue;
 +        }
-+        pp::Result<std::optional<pp::Representation>> representation = clipRepresentation(production, **assetId);
-+        if (!representation.ok()) {
-+            return representation.error();
-+        }
-+        if (!representation->has_value() || hasKdenliveHash((*representation)->resources.front(), clip.hash)) {
++        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::Representation> representation, clipRepresentation(production, *assetId));
++        if (!representation || hasKdenliveHash(representation->resources.front(), clip.hash)) {
 +            continue;
 +        }
-+        const pp::Uuid resourceId = (*representation)->resources.front().id;
-+        const pp::Result<void> recorded = transaction.recordResourceFingerprint(
-+            resourceId, {KdenliveHashAlgorithm, KdenliveHashVersion, std::vector<std::uint8_t>(clip.hash.cbegin(), clip.hash.cend())});
-+        if (!recorded.ok()) {
-+            return recorded.error();
-+        }
-+        const pp::Result<void> observed = transaction.observeResourceContent(resourceId, utf8(clip.path));
-+        if (!observed.ok()) {
-+            return observed.error();
-+        }
++        const pp::Uuid resourceId = representation->resources.front().id;
++        POSTPROJECT_TRY(transaction.recordResourceFingerprint(
++            resourceId, {KdenliveHashAlgorithm, KdenliveHashVersion, std::vector<std::uint8_t>(clip.hash.cbegin(), clip.hash.cend())}));
++        POSTPROJECT_TRY(transaction.observeResourceContent(resourceId, utf8(clip.path)));
 +        changed = true;
 +    }
 +    return changed;
 +}
 +
-+pp::Result<void> commitIf(pp::Transaction &transaction, const pp::Result<bool> &changed)
-+{
-+    if (!changed.ok()) {
-+        return changed.error();
-+    }
-+    return *changed ? transaction.commit() : transaction.rollback();
-+}
-+
 +pp::Result<void> recordClips(const QString &sidecar, const QString &projectPath, const std::vector<BinClip> &clips)
 +{
-+    pp::Result<pp::Production> opened = QFileInfo::exists(sidecar) ? pp::Production::open(utf8(sidecar))
-+                                                                   : pp::Production::create(utf8(sidecar), utf8(QFileInfo(projectPath).completeBaseName()));
-+    if (!opened.ok()) {
-+        return opened.error();
-+    }
-+    pp::Production production = *std::move(opened);
++    POSTPROJECT_TRY_ASSIGN(pp::Production production, QFileInfo::exists(sidecar)
++                                                          ? pp::Production::open(utf8(sidecar))
++                                                          : pp::Production::create(utf8(sidecar), utf8(QFileInfo(projectPath).completeBaseName())));
 +    const pp::RevisionContext context{pp::OriginIdentity{"Kdenlive", std::string(KDENLIVE_VERSION), std::nullopt}, std::string("Save project")};
 +
 +    // New clips must be committed before their resources can take a host hash.
 +    for (const auto stage : {&stageClips, &stageKdenliveHashes}) {
-+        pp::Result<pp::Transaction> transaction = production.beginTransaction();
-+        if (!transaction.ok()) {
-+            return transaction.error();
-+        }
-+        const pp::Result<void> described = transaction->setRevisionContext(context);
-+        if (!described.ok()) {
-+            return described.error();
-+        }
-+        const pp::Result<void> committed = commitIf(*transaction, stage(production, *transaction, clips));
-+        if (!committed.ok()) {
-+            return committed.error();
-+        }
++        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, production.beginTransaction());
++        POSTPROJECT_TRY(transaction.setRevisionContext(context));
++        POSTPROJECT_TRY_ASSIGN(const bool changed, stage(production, transaction, clips));
++        POSTPROJECT_TRY(changed ? transaction.commit() : transaction.rollback());
 +    }
 +    return {};
 +}
 +
-+} // namespace
-+
-+QString PostProjectSidecar::sidecarPath(const QString &projectPath)
++// Resolves every clip recorded in the sidecar in one call, and maps each clip's
++// control UUID to the one file PostProject identifies as that clip.
++pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QString &projectPath)
 +{
-+    const QFileInfo project(projectPath);
-+    return project.absoluteDir().absoluteFilePath(project.completeBaseName() + QStringLiteral(".pproj"));
-+}
-+
-+void PostProjectSidecar::recordProject(const QString &projectPath, const QDomDocument &scene)
-+{
-+    const QString path = sidecarPath(projectPath);
-+    const std::vector<BinClip> clips = fileBackedBinClips(projectPath, scene);
-+    if (clips.empty() && !QFileInfo::exists(path)) {
-+        return;
-+    }
-+    const pp::Result<void> recorded = recordClips(path, projectPath, clips);
-+    if (!recorded.ok()) {
-+        logFailure(path, "was not updated", recorded.error());
-+    }
-+}
-+
-+PostProjectSidecar::ClipLocator::ClipLocator(QString projectPath)
-+    : m_projectPath(std::move(projectPath))
-+{
-+}
-+
-+QString PostProjectSidecar::ClipLocator::locate(const QString &controlUuid)
-+{
-+    if (!m_resolved) {
-+        m_resolved = true;
-+        resolveAll();
-+    }
-+    return m_located.value(controlUuid);
-+}
-+
-+void PostProjectSidecar::ClipLocator::resolveAll()
-+{
-+    const QString path = sidecarPath(m_projectPath);
-+    if (!QFileInfo::exists(path)) {
-+        return;
-+    }
-+    pp::Result<pp::Production> opened = pp::Production::open(utf8(path));
-+    if (!opened.ok()) {
-+        logFailure(path, "could not be opened", opened.error());
-+        return;
-+    }
-+    const pp::Production production = *std::move(opened);
-+    pp::Result<std::vector<pp::Asset>> assets = production.assets();
-+    if (!assets.ok()) {
-+        logFailure(path, "could not list clips", assets.error());
-+        return;
-+    }
++    POSTPROJECT_TRY_ASSIGN(const pp::Production production, pp::Production::open(utf8(sidecar)));
++    POSTPROJECT_TRY_ASSIGN(const std::vector<pp::Asset> assets, production.assets());
 +
 +    // Search the project folder as it is now, and each former clip folder
 +    // outside it that still exists on this machine. Search directories are
 +    // never recorded in the sidecar.
-+    const QString projectFolder = QFileInfo(m_projectPath).absoluteDir().canonicalPath();
++    const QString projectFolder = QFileInfo(projectPath).absoluteDir().canonicalPath();
 +    std::set<QString> folders;
 +    std::vector<pp::Uuid> assetIds;
 +    std::map<std::pair<pp::Uuid::Bytes, pp::Uuid::Bytes>, QString> clipFor; // (asset, representation) -> control UUID
-+    for (const pp::Asset &asset : *assets) {
++    for (const pp::Asset &asset : assets) {
 +        pp::Result<std::vector<pp::ExternalIdentifier>> identifiers = production.externalIdentifiers({pp::ObjectKind::asset, asset.id});
 +        pp::Result<std::vector<pp::Representation>> representations = production.representations(asset.id);
-+        if (!identifiers.ok() || !representations.ok()) {
++        if (!identifiers.has_value() || !representations.has_value()) {
 +            continue;
 +        }
 +        QString controlUuid;
@@ -487,12 +385,9 @@ index 000000000..bc0d2670e
 +        options.addSearchDirectory(utf8(folder));
 +    }
 +    // Every clip is resolved together, so each folder is scanned only once.
-+    pp::Result<std::vector<pp::RepresentationResolution>> resolutions = production.resolveAssets(assetIds, options);
-+    if (!resolutions.ok()) {
-+        logFailure(path, "could not locate clips", resolutions.error());
-+        return;
-+    }
-+    for (const pp::RepresentationResolution &resolution : *resolutions) {
++    POSTPROJECT_TRY_ASSIGN(const std::vector<pp::RepresentationResolution> resolutions, production.resolveAssets(assetIds, options));
++    QHash<QString, QString> paths;
++    for (const pp::RepresentationResolution &resolution : resolutions) {
 +        const auto clip = clipFor.find({resolution.asset_id.bytes(), resolution.representation_id.bytes()});
 +        if (clip == clipFor.end() || resolution.resources.size() != 1) {
 +            continue;
@@ -501,9 +396,59 @@ index 000000000..bc0d2670e
 +        const bool located = resource.state == pp::ResourceResolutionState::online_at_known_locator ||
 +                             resource.state == pp::ResourceResolutionState::resolved_exact || resource.state == pp::ResourceResolutionState::resolved_probable;
 +        if (located && resource.candidates.size() == 1) {
-+            m_located.insert(clip->second, pathFor(resource.candidates.front().uri));
++            paths.insert(clip->second, pathFor(resource.candidates.front().uri));
 +        }
 +    }
++    return paths;
++}
++
++} // namespace
++
++QString PostProjectSidecar::sidecarPath(const QString &projectPath)
++{
++    const QFileInfo project(projectPath);
++    return project.absoluteDir().absoluteFilePath(project.completeBaseName() + QStringLiteral(".pproj"));
++}
++
++void PostProjectSidecar::recordProject(const QString &projectPath, const QDomDocument &scene)
++{
++    const QString path = sidecarPath(projectPath);
++    const std::vector<BinClip> clips = fileBackedBinClips(projectPath, scene);
++    if (clips.empty() && !QFileInfo::exists(path)) {
++        return;
++    }
++    const pp::Result<void> recorded = recordClips(path, projectPath, clips);
++    if (!recorded.has_value()) {
++        logFailure(path, "was not updated", recorded.error());
++    }
++}
++
++PostProjectSidecar::ClipLocator::ClipLocator(QString projectPath)
++    : m_projectPath(std::move(projectPath))
++{
++}
++
++QString PostProjectSidecar::ClipLocator::locate(const QString &controlUuid)
++{
++    if (!m_resolved) {
++        m_resolved = true;
++        resolveAll();
++    }
++    return m_located.value(controlUuid);
++}
++
++void PostProjectSidecar::ClipLocator::resolveAll()
++{
++    const QString path = sidecarPath(m_projectPath);
++    if (!QFileInfo::exists(path)) {
++        return;
++    }
++    pp::Result<QHash<QString, QString>> located = locateClips(path, m_projectPath);
++    if (!located.has_value()) {
++        logFailure(path, "could not locate clips", located.error());
++        return;
++    }
++    m_located = *std::move(located);
 +}
 diff --git a/src/doc/postprojectsidecar.h b/src/doc/postprojectsidecar.h
 new file mode 100644
