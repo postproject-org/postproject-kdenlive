@@ -12,7 +12,7 @@ the first save, a proxy named after other content, and clips the
 sidecar does not know.
 
 diff --git a/tests/postprojecttest.cpp b/tests/postprojecttest.cpp
-index e5f7283e9..77303e540 100644
+index e5f7283e9..8a849ebc8 100644
 --- a/tests/postprojecttest.cpp
 +++ b/tests/postprojecttest.cpp
 @@ -27,9 +27,15 @@ QString kdenliveHash(const QString &path)
@@ -93,7 +93,7 @@ index e5f7283e9..77303e540 100644
  } // namespace
  
  TEST_CASE("Relink missing clips through a PostProject sidecar", "[PostProject]")
-@@ -246,3 +287,183 @@ TEST_CASE("Relink missing clips through a PostProject sidecar", "[PostProject]")
+@@ -246,3 +287,188 @@ TEST_CASE("Relink missing clips through a PostProject sidecar", "[PostProject]")
          CHECK(item.status == DocumentChecker::MissingStatus::Missing);
      }
  }
@@ -147,6 +147,11 @@ index e5f7283e9..77303e540 100644
 +        const auto arguments = recordedArguments(production);
 +        REQUIRE(arguments.size() == 1);
 +        CHECK(arguments.front().target == postproject::ObjectRef{postproject::ObjectKind::activity, producers.front().id});
++        // Machine-local paths are recorded as placeholders.
++        using postproject::MetadataValue;
++        CHECK(arguments.front().value ==
++              MetadataValue::list({MetadataValue::plainString("-i"), MetadataValue::plainString("{source}"), MetadataValue::plainString("-vf"),
++                                   MetadataValue::plainString("scale=640:-2"), MetadataValue::plainString("{proxy}")}));
 +        CHECK(production.evaluateArtifact(proxies.front().id).value().state == postproject::ArtifactKnowledgeState::current);
 +        CHECK(production.artifactReproducibility(proxies.front().id).value().reproducible);
 +    }

@@ -115,9 +115,9 @@ have no sidecar entry and keep Kdenlive's behavior.
 This builds on the resolver experiment. Kdenlive keeps rendering proxies with
 its own settings, and the sidecar records how each proxy was made. When
 `ProxyTask` renders a proxy for a clip the sidecar knows, Kdenlive requests an
-`org.kde.kdenlive:generate-proxy` job and claims it as the worker. A source
-whose content no longer matches the sidecar is observed first, so the proxy is
-recorded against the content it is made from. The claim is renewed every minute
+`org.kde.kdenlive:generate-proxy` job and claims it as the worker. The source is
+observed in the same transaction, so the proxy is recorded against the content
+it is made from. Observing unchanged content records nothing. The claim is renewed every minute
 while `ffmpeg` or `melt` runs. On success, one transaction records the proxy as
 a proxy representation of the clip's asset and the activity with the tool name
 and its argument list (paths replaced by `{source}` and `{proxy}`), and
@@ -133,8 +133,9 @@ no tool and no arguments. PostProject reports it as current but not
 reproducible.
 
 When a project opens, the sidecar is asked about each proxy whose proxy and
-source both exist. If the source no longer matches its recorded content, that
-content is observed. If PostProject then evaluates the proxy as stale, the
+source both exist. The source is observed first, because evaluation reads only
+recorded knowledge and another application may have replaced the file. If
+PostProject then evaluates the proxy as stale, the
 checker reports it as a `Proxy` item with status `Reload`. It also drops
 `kdenlive:file_hash` so the clip is hashed again. Accepting the dialog rebuilds
 the proxy under a new name, and that render is recorded like any other. An

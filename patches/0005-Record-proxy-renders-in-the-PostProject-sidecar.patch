@@ -16,7 +16,7 @@ project saved for the first time, are recorded on save when their name
 carries the clip's present Kdenlive hash.
 
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
-index 98758f0bc..b6683e542 100644
+index 98758f0bc..c857f9944 100644
 --- a/src/doc/postprojectsidecar.cpp
 +++ b/src/doc/postprojectsidecar.cpp
 @@ -6,13 +6,16 @@
@@ -89,7 +89,7 @@ index 98758f0bc..b6683e542 100644
          }
      }
      return clips;
-@@ -170,6 +196,34 @@ pp::Result<std::optional<pp::Representation>> clipRepresentation(const pp::Produ
+@@ -170,6 +196,27 @@ pp::Result<std::optional<pp::Representation>> clipRepresentation(const pp::Produ
      return clipRepresentation(std::move(representations));
  }
  
@@ -109,13 +109,6 @@ index 98758f0bc..b6683e542 100644
 +    return std::nullopt;
 +}
 +
-+// Whether the file at path no longer has the content recorded for a resource.
-+pp::Result<bool> contentChanged(const pp::Production &production, const pp::Resource &resource, const QString &path)
-+{
-+    POSTPROJECT_TRY_ASSIGN(const pp::ContentVerification verification, production.verifyResource(resource.id, utf8(path)));
-+    return verification == pp::ContentVerification::differs;
-+}
-+
 +pp::RevisionContext revisionContext(const char *summary)
 +{
 +    return {pp::OriginIdentity{"Kdenlive", std::string(KDENLIVE_VERSION), std::nullopt}, std::string(summary)};
@@ -124,7 +117,7 @@ index 98758f0bc..b6683e542 100644
  bool hasKdenliveHash(const pp::Resource &resource, const QByteArray &hash)
  {
      for (const pp::Fingerprint &fingerprint : resource.fingerprints) {
-@@ -245,15 +299,52 @@ pp::Result<bool> stageKdenliveHashes(const pp::Production &production, pp::Trans
+@@ -245,15 +292,50 @@ pp::Result<bool> stageKdenliveHashes(const pp::Production &production, pp::Trans
      return changed;
  }
  
@@ -149,10 +142,8 @@ index 98758f0bc..b6683e542 100644
 +        if (!source || proxyAt(representations, locatorFor(clip.proxy)) || ProjectClip::calculateHash(clip.path).first != clip.hash) {
 +            continue;
 +        }
-+        POSTPROJECT_TRY_ASSIGN(const bool sourceChanged, contentChanged(production, source->resources.front(), clip.path));
-+        if (sourceChanged) {
-+            POSTPROJECT_TRY(transaction.observeResourceContent(source->resources.front().id, utf8(clip.path)));
-+        }
++        // Observing unchanged content records nothing.
++        POSTPROJECT_TRY(transaction.observeResourceContent(source->resources.front().id, utf8(clip.path)));
 +        POSTPROJECT_TRY_ASSIGN(const pp::Uuid proxyId, transaction.addSingleFileRepresentation(*assetId, pp::RepresentationKind::proxy, utf8(clip.proxy)));
 +        pp::ActivitySpec activity;
 +        activity.kind = ProxyJobKind;
@@ -180,7 +171,7 @@ index 98758f0bc..b6683e542 100644
          POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, production.beginTransaction());
          POSTPROJECT_TRY(transaction.setRevisionContext(context));
          POSTPROJECT_TRY_ASSIGN(const bool changed, stage(production, transaction, clips));
-@@ -325,8 +416,35 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
+@@ -325,8 +407,35 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
      return paths;
  }
  
@@ -216,7 +207,7 @@ index 98758f0bc..b6683e542 100644
  QString PostProjectSidecar::sidecarPath(const QString &projectPath)
  {
      const QFileInfo project(projectPath);
-@@ -373,3 +491,157 @@ void PostProjectSidecar::ClipLocator::resolveAll()
+@@ -373,3 +482,156 @@ void PostProjectSidecar::ClipLocator::resolveAll()
      }
      m_located = *std::move(located);
  }
@@ -238,7 +229,6 @@ index 98758f0bc..b6683e542 100644
 +        if (!source) {
 +            return {};
 +        }
-+        POSTPROJECT_TRY_ASSIGN(const bool sourceChanged, contentChanged(production, source->resources.front(), sourcePath));
 +        const std::int64_t now = nowMicros();
 +        // The transaction must end before the production moves into the claim.
 +        std::optional<pp::Uuid> jobId;
@@ -246,10 +236,9 @@ index 98758f0bc..b6683e542 100644
 +        {
 +            POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, production.beginTransaction());
 +            POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Create proxy clip")));
-+            // The proxy is made from the source as it is now.
-+            if (sourceChanged) {
-+                POSTPROJECT_TRY(transaction.observeResourceContent(source->resources.front().id, utf8(sourcePath)));
-+            }
++            // The proxy is made from the source as it is now. Observing unchanged
++            // content records nothing.
++            POSTPROJECT_TRY(transaction.observeResourceContent(source->resources.front().id, utf8(sourcePath)));
 +            POSTPROJECT_TRY_ASSIGN(jobId, transaction.requestJob({ProxyJobKind, {source->id}, *assetId, pp::RepresentationKind::proxy, std::nullopt}));
 +            POSTPROJECT_TRY_ASSIGN(claimId, transaction.claimJob(*jobId, kdenliveTool(), std::nullopt, now, now + ClaimLeaseMicros));
 +            POSTPROJECT_TRY(transaction.commit());
@@ -339,12 +328,13 @@ index 98758f0bc..b6683e542 100644
 +        POSTPROJECT_TRY_ASSIGN(const pp::Uuid activityId, transaction.createActivity(activity));
 +        // The arguments are the render's parameters. Machine-local paths are
 +        // replaced, so the activity is enough to render the proxy again.
-+        std::vector<pp::MetadataInput> values;
++        std::vector<pp::MetadataValue> values;
 +        for (QString argument : arguments) {
 +            argument.replace(claim.sourcePath, QStringLiteral("{source}")).replace(proxyPath, QStringLiteral("{proxy}"));
-+            values.push_back(pp::MetadataInput::plainString(utf8(argument)));
++            values.push_back(pp::MetadataValue::plainString(utf8(argument)));
 +        }
-+        POSTPROJECT_TRY(transaction.addMetadataValue({pp::ObjectKind::activity, activityId}, ProxyVocabulary, "arguments", pp::MetadataInput::list(values)));
++        POSTPROJECT_TRY(
++            transaction.addMetadataValue({pp::ObjectKind::activity, activityId}, ProxyVocabulary, "arguments", pp::MetadataValue::list(std::move(values))));
 +        POSTPROJECT_TRY(transaction.completeJob(claim.jobId, claim.claimId, now, proxyId, activityId));
 +        return transaction.commit();
 +    }();

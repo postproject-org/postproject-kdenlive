@@ -34,15 +34,15 @@ index 956ffc16b..3dfccb7d2 100644
          return resource;
      }
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
-index b6683e542..40a6f17fd 100644
+index c857f9944..ee522b72f 100644
 --- a/src/doc/postprojectsidecar.cpp
 +++ b/src/doc/postprojectsidecar.cpp
-@@ -416,6 +416,33 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
+@@ -407,6 +407,34 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
      return paths;
  }
  
 +// A clip's recorded proxy is stale when the source no longer has the content
-+// the proxy was made from. A changed source is observed first, so PostProject's
++// the proxy was made from. The source is observed first, so PostProject's
 +// artifact evaluation decides.
 +pp::Result<bool> proxyIsStale(const QString &sidecar, const std::string &controlUuid, const QString &sourcePath, const QString &proxyPath)
 +{
@@ -57,8 +57,9 @@ index b6683e542..40a6f17fd 100644
 +    if (!source || !proxy) {
 +        return false;
 +    }
-+    POSTPROJECT_TRY_ASSIGN(const bool sourceChanged, contentChanged(production, source->resources.front(), sourcePath));
-+    if (sourceChanged) {
++    {
++        // Evaluation reads only recorded knowledge, and another application may
++        // have replaced the source. Observing unchanged content records nothing.
 +        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, production.beginTransaction());
 +        POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Open project")));
 +        POSTPROJECT_TRY(transaction.observeResourceContent(source->resources.front().id, utf8(sourcePath)));
@@ -71,7 +72,7 @@ index b6683e542..40a6f17fd 100644
  // The end of a render log, within PostProject's bound for a failure diagnostic.
  std::string failureDiagnostic(const QString &log)
  {
-@@ -492,6 +519,20 @@ void PostProjectSidecar::ClipLocator::resolveAll()
+@@ -483,6 +511,20 @@ void PostProjectSidecar::ClipLocator::resolveAll()
      m_located = *std::move(located);
  }
  
