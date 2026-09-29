@@ -61,4 +61,21 @@ jobs:
       - name: Build
         run: tools/build.sh ${{ matrix.postproject == 'with' && 'install' || 'none' }}
       - name: Test
+        if: matrix.postproject == 'with'
+        run: |
+          mkdir -p evidence
+          POSTPROJECT_ABI_TRACE="$PWD/evidence/kdenlive-abi.txt" tools/test.sh
+          grep -R -q 'POSTPROJECT_TRY(' kdenlive/src
+          grep -R -q 'POSTPROJECT_TRY_ASSIGN(' kdenlive/src
+          grep -R -q 'pp::Result<' kdenlive/src
+          printf '%s\n' 'Result<T>' 'POSTPROJECT_TRY' 'POSTPROJECT_TRY_ASSIGN' \
+            > evidence/kdenlive-cpp.txt
+      - name: Test without PostProject
+        if: matrix.postproject == 'without'
         run: tools/test.sh
+      - uses: actions/upload-artifact@v6
+        if: matrix.postproject == 'with'
+        with:
+          name: kdenlive-postproject-usage
+          path: evidence/
+          if-no-files-found: error
