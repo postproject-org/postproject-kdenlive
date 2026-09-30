@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Erich Seifert <dev@erichseifert.de>
 Date: Sun, 27 Sep 2026 14:34:34 +0200
-Subject: [PATCH 3/8] Relink missing clips through the PostProject sidecar
+Subject: [PATCH 3/9] Relink missing clips through the PostProject sidecar
 
 When a bin clip is missing and the project root did not simply move,
 ask the sidecar where it went. The first question resolves every clip

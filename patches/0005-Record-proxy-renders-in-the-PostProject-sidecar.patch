@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Erich Seifert <dev@erichseifert.de>
 Date: Mon, 28 Sep 2026 09:08:28 +0200
-Subject: [PATCH 5/8] Record proxy renders in the PostProject sidecar
+Subject: [PATCH 5/9] Record proxy renders in the PostProject sidecar
 
 When a proxy is rendered for a clip the sidecar knows, request a proxy
 job and claim it with Kdenlive as the worker, renewing the claim while

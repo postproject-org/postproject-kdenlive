@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Erich Seifert <dev@erichseifert.de>
 Date: Sun, 27 Sep 2026 14:34:33 +0200
-Subject: [PATCH 2/8] Record bin clips in a PostProject sidecar on save
+Subject: [PATCH 2/9] Record bin clips in a PostProject sidecar on save
 
 Saving film.kdenlive records each file-backed bin clip in film.pproj:
 an imported asset with PostProject's content fingerprint, keyed by

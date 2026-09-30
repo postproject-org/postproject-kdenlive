@@ -6,3 +6,4 @@
 0006-Rebuild-proxies-the-PostProject-sidecar-reports-as-s.patch
 0007-Test-proxies-as-managed-artifacts-in-the-PostProject.patch
 0008-Select-an-explicit-PostProject-production.patch
+0009-Exercise-the-shared-production-workflow.patch

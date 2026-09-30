@@ -1,0 +1,168 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Erich Seifert <dev@erichseifert.de>
+Date: Thu, 1 Oct 2026 01:27:45 +0200
+Subject: [PATCH 9/9] Exercise the shared production workflow
+
+
+diff --git a/tests/postprojecttest.cpp b/tests/postprojecttest.cpp
+index 33d9aa075..ab2d1cf1b 100644
+--- a/tests/postprojecttest.cpp
++++ b/tests/postprojecttest.cpp
+@@ -10,11 +10,14 @@
+ #include "doc/postprojectsidecar.h"
+ #include "xml/xml.hpp"
+ 
++#include <QFile>
+ #include <QTemporaryDir>
+ #include <QUuid>
+ 
+ #include <postproject/postproject.hpp>
+ 
++#include <algorithm>
++
+ namespace {
+ 
+ const QString ControlUuid = QUuid::createUuidV5(QUuid(), QStringLiteral("postproject-pilot")).toString();
+@@ -301,6 +304,142 @@ TEST_CASE("Select an explicit shared PostProject production", "[PostProject]")
+     CHECK(PostProjectSidecar::sidecarPath(projectPath) == projectFolder.filePath(QStringLiteral("film.pproj")));
+ }
+ 
++TEST_CASE("Exercise Kdenlive's shared production path", "[PostProject][SharedProduction]")
++{
++    const QString action = QString::fromUtf8(qgetenv("POSTPROJECT_SHARED_ACTION"));
++    if (action.isEmpty()) {
++        SUCCEED("the cross-host driver supplies an action");
++        return;
++    }
++    const QString root = QString::fromUtf8(qgetenv("POSTPROJECT_SHARED_ROOT"));
++    REQUIRE_FALSE(root.isEmpty());
++    QDir directory(root);
++    REQUIRE(directory.mkpath(QStringLiteral(".")));
++    const QString productionPath = directory.filePath(QStringLiteral("shared.pproj"));
++    const QString projectPath = directory.filePath(QStringLiteral("edit.kdenlive"));
++    const QString sourcePath = directory.filePath(QStringLiteral("camera.mkv"));
++    const QString movedPath = directory.filePath(QStringLiteral("moved/camera.mkv"));
++    const QString proxyFolder = directory.filePath(QStringLiteral("proxy"));
++
++    if (action == QLatin1String("record")) {
++        REQUIRE(QFile::copy(ClipSource, sourcePath));
++        const QString hash = kdenliveHash(sourcePath);
++        REQUIRE(directory.mkpath(QStringLiteral("proxy")));
++        const QString proxyPath = QDir(proxyFolder).filePath(hash + QStringLiteral(".mkv"));
++        REQUIRE(QFile::copy(sourcesPath + QStringLiteral("/dataset/red.mp4"), proxyPath));
++        qApp->setProperty("postprojectProductionPath", productionPath);
++        PostProjectSidecar::recordProject(projectPath, projectScene(root, sourcePath, hash, proxyPath));
++        qApp->setProperty("postprojectProductionPath", QString());
++        REQUIRE(QFile::exists(productionPath));
++        return;
++    }
++
++    auto production = postproject::Production::open(productionPath.toStdString()).value();
++    const auto objects =
++        production.findByExternalIdentifier("https://postproject.org/id/application", ControlUuid.toStdString(), "org.kde.kdenlive:control_uuid").value();
++    REQUIRE(objects.size() == 1);
++    const auto assetId = objects.front().id;
++
++    if (action == QLatin1String("observe-render")) {
++        const auto identifiers = production.externalIdentifiers({postproject::ObjectKind::asset, assetId}).value();
++        CHECK(std::any_of(identifiers.cbegin(), identifiers.cend(), [](const postproject::ExternalIdentifier &identifier) {
++            return identifier.qualifier == std::optional<std::string>("org.blender:strip_uuid");
++        }));
++        bool sawBlender = false;
++        for (const auto &revision : production.changesSince(0).value()) {
++            sawBlender = sawBlender || (revision.origin && revision.origin->name == "Blender");
++        }
++        CHECK(sawBlender);
++        const auto representations = production.representations(assetId).value();
++        const auto render = std::find_if(representations.cbegin(), representations.cend(), [](const postproject::Representation &representation) {
++            return representation.kind == postproject::RepresentationKind::derived;
++        });
++        REQUIRE(render != representations.cend());
++        CHECK(production.evaluateArtifact(render->id).value().state == postproject::ArtifactKnowledgeState::current);
++        return;
++    }
++
++    if (action == QLatin1String("relink")) {
++        REQUIRE(directory.mkpath(QStringLiteral("moved")));
++        REQUIRE(QFile::rename(sourcePath, movedPath));
++        const QString hash = kdenliveHash(movedPath);
++        const QString proxyPath = QDir(proxyFolder).filePath(hash + QStringLiteral(".mkv"));
++        qApp->setProperty("postprojectProductionPath", productionPath);
++        PostProjectSidecar::recordProject(projectPath, projectScene(root, movedPath, hash, proxyPath));
++        qApp->setProperty("postprojectProductionPath", QString());
++        return;
++    }
++
++    if (action == QLatin1String("prepare-conflict")) {
++        const auto latest = production.latestRevision().value();
++        REQUIRE(latest.has_value());
++        QFile state(directory.filePath(QStringLiteral("base-sequence")));
++        REQUIRE(state.open(QIODevice::WriteOnly | QIODevice::Truncate));
++        REQUIRE(state.write(QByteArray::number(latest->sequence)) > 0);
++        return;
++    }
++
++    if (action == QLatin1String("lose-conflict")) {
++        QFile state(directory.filePath(QStringLiteral("base-sequence")));
++        REQUIRE(state.open(QIODevice::ReadOnly));
++        const std::uint64_t baseSequence = state.readAll().toULongLong();
++        const auto revisions = production.changesSince(0).value();
++        const auto base = std::find_if(revisions.cbegin(), revisions.cend(),
++                                       [baseSequence](const postproject::Revision &revision) { return revision.sequence == baseSequence; });
++        REQUIRE(base != revisions.cend());
++        const auto latest = production.latestRevision().value();
++        REQUIRE(latest.has_value());
++        REQUIRE(latest->sequence > baseSequence);
++        const auto representations = production.representations(assetId).value();
++        const auto original = std::find_if(representations.cbegin(), representations.cend(), [](const postproject::Representation &representation) {
++            return representation.kind == postproject::RepresentationKind::original;
++        });
++        REQUIRE(original != representations.cend());
++        const QString choice = directory.filePath(QStringLiteral("kdenlive-choice.mkv"));
++        REQUIRE(QFile::copy(movedPath, choice));
++        auto transaction = production.beginTransaction(base->id).value();
++        REQUIRE(transaction
++                    .setRevisionContext({postproject::OriginIdentity{"Kdenlive", std::string("26.08.1"), std::nullopt}, std::string("Confirm source location")})
++                    .has_value());
++        REQUIRE(transaction.confirmLocator(original->resources.front().id, postproject::fileLocator(choice.toStdString()).value()).has_value());
++        const auto committed = transaction.commit();
++        REQUIRE_FALSE(committed.has_value());
++        const auto *conflict = committed.error().transactionConflict();
++        REQUIRE(conflict != nullptr);
++        CHECK(conflict->key.kind == postproject::ConflictKeyKind::locator_set);
++        CHECK(conflict->base_revision_sequence == baseSequence);
++        CHECK(conflict->superseding_revision_sequence > baseSequence);
++        return;
++    }
++
++    if (action == QLatin1String("change-content")) {
++        REQUIRE(QFile::remove(movedPath));
++        REQUIRE(QFile::copy(sourcesPath + QStringLiteral("/dataset/red.mp4"), movedPath));
++        const QString changedHash = kdenliveHash(movedPath);
++        const QString oldProxy = QDir(proxyFolder).entryList({QStringLiteral("*.mkv")}, QDir::Files).value(0);
++        REQUIRE_FALSE(oldProxy.isEmpty());
++        qApp->setProperty("postprojectProductionPath", productionPath);
++        PostProjectSidecar::recordProject(projectPath, projectScene(root, movedPath, changedHash, QDir(proxyFolder).filePath(oldProxy)));
++        qApp->setProperty("postprojectProductionPath", QString());
++        return;
++    }
++
++    if (action == QLatin1String("observe-stale")) {
++        int managed = 0;
++        for (const auto &representation : production.representations(assetId).value()) {
++            if (representation.kind == postproject::RepresentationKind::original) {
++                continue;
++            }
++            ++managed;
++            CHECK(production.evaluateArtifact(representation.id).value().state == postproject::ArtifactKnowledgeState::stale);
++        }
++        CHECK(managed >= 2);
++        return;
++    }
++
++    FAIL("unknown shared-production action");
++}
++
+ TEST_CASE("Record proxies as managed artifacts in a PostProject sidecar", "[PostProject]")
+ {
+     QTemporaryDir temporary;

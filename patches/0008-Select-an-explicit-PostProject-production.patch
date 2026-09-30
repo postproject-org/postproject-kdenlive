@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Erich Seifert <dev@erichseifert.de>
 Date: Wed, 30 Sep 2026 23:40:58 +0200
-Subject: [PATCH 8/8] Select an explicit PostProject production
+Subject: [PATCH 8/9] Select an explicit PostProject production
 
 
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp

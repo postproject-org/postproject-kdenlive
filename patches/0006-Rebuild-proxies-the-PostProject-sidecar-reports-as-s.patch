@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Erich Seifert <dev@erichseifert.de>
 Date: Mon, 28 Sep 2026 09:08:38 +0200
-Subject: [PATCH 6/8] Rebuild proxies the PostProject sidecar reports as stale
+Subject: [PATCH 6/9] Rebuild proxies the PostProject sidecar reports as stale
 
 Kdenlive checks a proxied clip's hash only when its proxy is missing,
 so a replaced source keeps playing its old proxy. When a project
