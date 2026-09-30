@@ -1,0 +1,117 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Erich Seifert <dev@erichseifert.de>
+Date: Wed, 30 Sep 2026 23:40:58 +0200
+Subject: [PATCH 8/8] Select an explicit PostProject production
+
+
+diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
+index ee522b72f..43769e16e 100644
+--- a/src/doc/postprojectsidecar.cpp
++++ b/src/doc/postprojectsidecar.cpp
+@@ -11,6 +11,7 @@
+ #include "xml/xml.hpp"
+ #include <config-kdenlive.h>
+ 
++#include <QCoreApplication>
+ #include <QDateTime>
+ #include <QDir>
+ #include <QDomDocument>
+@@ -315,7 +316,7 @@ pp::Result<bool> stageAdoptedProxies(const pp::Production &production, pp::Trans
+         }
+         // Observing unchanged content records nothing.
+         POSTPROJECT_TRY(transaction.observeResourceContent(source->resources.front().id, utf8(clip.path)));
+-        POSTPROJECT_TRY_ASSIGN(const pp::Uuid proxyId, transaction.addSingleFileRepresentation(*assetId, pp::RepresentationKind::proxy, utf8(clip.proxy)));
++        POSTPROJECT_TRY_ASSIGN(const pp::Uuid proxyId, transaction.addRepresentation(*assetId, pp::RepresentationKind::proxy, utf8(clip.proxy)));
+         pp::ActivitySpec activity;
+         activity.kind = ProxyJobKind;
+         activity.inputs = {{source->id, std::nullopt}};
+@@ -466,6 +467,12 @@ struct PostProjectSidecar::ProxyJob::Claim
+ 
+ QString PostProjectSidecar::sidecarPath(const QString &projectPath)
+ {
++    if (QCoreApplication::instance() != nullptr) {
++        const QString selected = QCoreApplication::instance()->property("postprojectProductionPath").toString();
++        if (!selected.isEmpty()) {
++            return QFileInfo(selected).absoluteFilePath();
++        }
++    }
+     const QFileInfo project(projectPath);
+     return project.absoluteDir().absoluteFilePath(project.completeBaseName() + QStringLiteral(".pproj"));
+ }
+@@ -630,7 +637,7 @@ void PostProjectSidecar::ProxyJob::succeed(const QString &proxyPath, const QStri
+                 }
+             }
+         }
+-        POSTPROJECT_TRY_ASSIGN(const pp::Uuid proxyId, transaction.addSingleFileRepresentation(claim.assetId, pp::RepresentationKind::proxy, utf8(proxyPath)));
++        POSTPROJECT_TRY_ASSIGN(const pp::Uuid proxyId, transaction.addRepresentation(claim.assetId, pp::RepresentationKind::proxy, utf8(proxyPath)));
+         pp::ActivitySpec activity;
+         activity.kind = ProxyJobKind;
+         activity.started_at_unix_micros = claim.startedAt;
+diff --git a/src/doc/postprojectsidecar.h b/src/doc/postprojectsidecar.h
+index 3c512049b..5a570ac32 100644
+--- a/src/doc/postprojectsidecar.h
++++ b/src/doc/postprojectsidecar.h
+@@ -31,7 +31,10 @@ class QProcess;
+  */
+ namespace PostProjectSidecar {
+ 
+-/** @brief Returns the sidecar production path for a project file path. */
++/**
++ * @brief Returns the explicitly selected production, or the project's default
++ * sidecar path.
++ */
+ QString sidecarPath(const QString &projectPath);
+ 
+ /**
+diff --git a/src/main.cpp b/src/main.cpp
+index 83df480af..e3f2addee 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -342,6 +342,11 @@ int main(int argc, char *argv[])
+     parser.addOption(mltLogLevelOption);
+     QCommandLineOption clipsOption(QStringLiteral("i"), i18n("Comma separated list of files to add as clips to the bin."), QStringLiteral("clips"));
+     parser.addOption(clipsOption);
++#ifdef HAVE_POSTPROJECT
++    QCommandLineOption postProjectProductionOption(QStringLiteral("postproject-production"), i18n("Use an explicit local PostProject production."),
++                                                   QStringLiteral("production"));
++    parser.addOption(postProjectProductionOption);
++#endif
+ 
+     // render options
+     QCommandLineOption renderOption(QStringLiteral("render"), i18n("Directly render the project and exit."));
+@@ -370,6 +375,11 @@ int main(int argc, char *argv[])
+     // Parse command line
+     parser.process(app);
+     aboutData.processCommandLine(&parser);
++#ifdef HAVE_POSTPROJECT
++    if (parser.isSet(postProjectProductionOption)) {
++        app.setProperty("postprojectProductionPath", QFileInfo(parser.value(postProjectProductionOption)).absoluteFilePath());
++    }
++#endif
+     if (parser.isSet(saveDebugOption)) {
+         QJsonObject report, property;
+         QJsonArray properties;
+diff --git a/tests/postprojecttest.cpp b/tests/postprojecttest.cpp
+index 8a849ebc8..33d9aa075 100644
+--- a/tests/postprojecttest.cpp
++++ b/tests/postprojecttest.cpp
+@@ -288,6 +288,19 @@ TEST_CASE("Relink missing clips through a PostProject sidecar", "[PostProject]")
+     }
+ }
+ 
++TEST_CASE("Select an explicit shared PostProject production", "[PostProject]")
++{
++    QTemporaryDir projectFolder;
++    REQUIRE(projectFolder.isValid());
++    const QString projectPath = projectFolder.filePath(QStringLiteral("film.kdenlive"));
++    const QString sharedPath = projectFolder.filePath(QStringLiteral("shared/documentary.pproj"));
++
++    qApp->setProperty("postprojectProductionPath", sharedPath);
++    CHECK(PostProjectSidecar::sidecarPath(projectPath) == QFileInfo(sharedPath).absoluteFilePath());
++    qApp->setProperty("postprojectProductionPath", QString());
++    CHECK(PostProjectSidecar::sidecarPath(projectPath) == projectFolder.filePath(QStringLiteral("film.pproj")));
++}
++
+ TEST_CASE("Record proxies as managed artifacts in a PostProject sidecar", "[PostProject]")
+ {
+     QTemporaryDir temporary;

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Erich Seifert <dev@erichseifert.de>
 Date: Mon, 28 Sep 2026 09:08:28 +0200
-Subject: [PATCH 5/7] Record proxy renders in the PostProject sidecar
+Subject: [PATCH 5/8] Record proxy renders in the PostProject sidecar
 
 When a proxy is rendered for a clip the sidecar knows, request a proxy
 job and claim it with Kdenlive as the worker, renewing the claim while
@@ -16,7 +16,7 @@ project saved for the first time, are recorded on save when their name
 carries the clip's present Kdenlive hash.
 
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
-index 98758f0bc..3826f8cf4 100644
+index 98758f0bc..c857f9944 100644
 --- a/src/doc/postprojectsidecar.cpp
 +++ b/src/doc/postprojectsidecar.cpp
 @@ -6,13 +6,16 @@
@@ -144,7 +144,7 @@ index 98758f0bc..3826f8cf4 100644
 +        }
 +        // Observing unchanged content records nothing.
 +        POSTPROJECT_TRY(transaction.observeResourceContent(source->resources.front().id, utf8(clip.path)));
-+        POSTPROJECT_TRY_ASSIGN(const pp::Uuid proxyId, transaction.addRepresentation(*assetId, pp::RepresentationKind::proxy, utf8(clip.proxy)));
++        POSTPROJECT_TRY_ASSIGN(const pp::Uuid proxyId, transaction.addSingleFileRepresentation(*assetId, pp::RepresentationKind::proxy, utf8(clip.proxy)));
 +        pp::ActivitySpec activity;
 +        activity.kind = ProxyJobKind;
 +        activity.inputs = {{source->id, std::nullopt}};
@@ -317,7 +317,7 @@ index 98758f0bc..3826f8cf4 100644
 +                }
 +            }
 +        }
-+        POSTPROJECT_TRY_ASSIGN(const pp::Uuid proxyId, transaction.addRepresentation(claim.assetId, pp::RepresentationKind::proxy, utf8(proxyPath)));
++        POSTPROJECT_TRY_ASSIGN(const pp::Uuid proxyId, transaction.addSingleFileRepresentation(claim.assetId, pp::RepresentationKind::proxy, utf8(proxyPath)));
 +        pp::ActivitySpec activity;
 +        activity.kind = ProxyJobKind;
 +        activity.started_at_unix_micros = claim.startedAt;

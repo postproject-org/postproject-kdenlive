@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Erich Seifert <dev@erichseifert.de>
 Date: Sun, 27 Sep 2026 14:34:33 +0200
-Subject: [PATCH 1/7] Find PostProject as an optional package
+Subject: [PATCH 1/8] Find PostProject as an optional package
 
 WITH_POSTPROJECT (default ON) looks for an installed PostProject CMake
 package and defines HAVE_POSTPROJECT when it is found. Without it, no

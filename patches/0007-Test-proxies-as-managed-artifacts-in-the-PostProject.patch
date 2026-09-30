@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Erich Seifert <dev@erichseifert.de>
 Date: Mon, 28 Sep 2026 09:08:39 +0200
-Subject: [PATCH 7/7] Test proxies as managed artifacts in the PostProject
+Subject: [PATCH 7/8] Test proxies as managed artifacts in the PostProject
  sidecar
 
 Cover a render recorded as a completed job with its activity and
