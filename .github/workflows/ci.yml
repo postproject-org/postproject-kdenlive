@@ -90,7 +90,9 @@ jobs:
           postproject-blender/tools/dev.sh postproject-blender/blender/blender postproject
           echo "postproject @ file://$GITHUB_WORKSPACE/postproject/python" \
             > "$RUNNER_TEMP/postproject-override.txt"
-          uv pip install --system \
+          manager_venv="$RUNNER_TEMP/postproject-manager"
+          uv venv --python 3.13 "$manager_venv"
+          uv pip install --python "$manager_venv/bin/python" \
             --override "$RUNNER_TEMP/postproject-override.txt" \
             ./postproject/python ./postproject-openassetio-manager
           POSTPROJECT_ABI_TRACE_DIRECTORY="$PWD/evidence/shared-production" \
@@ -99,7 +101,7 @@ jobs:
             postproject-blender/blender/blender \
             postproject-blender/dist/postproject_relink-0.1.0-linux_x64.zip \
             postproject-blender \
-            "$(command -v python)" \
+            "$manager_venv/bin/python" \
             postproject-openassetio-manager \
             postproject/target/release/libpostproject.so
       - uses: actions/upload-artifact@v6
