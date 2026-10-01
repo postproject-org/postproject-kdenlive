@@ -93,7 +93,7 @@ jobs:
           python -m uv pip install --system \
             --override "$RUNNER_TEMP/postproject-override.txt" \
             ./postproject/python ./postproject-openassetio-manager
-          POSTPROJECT_ABI_TRACE="$PWD/evidence/shared-production-abi.txt" \
+          POSTPROJECT_ABI_TRACE_DIRECTORY="$PWD/evidence/shared-production" \
             tools/shared-production.sh \
             build \
             postproject-blender/blender/blender \
