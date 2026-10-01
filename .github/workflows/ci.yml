@@ -90,7 +90,7 @@ jobs:
           postproject-blender/tools/dev.sh postproject-blender/blender/blender postproject
           echo "postproject @ file://$GITHUB_WORKSPACE/postproject/python" \
             > "$RUNNER_TEMP/postproject-override.txt"
-          python -m uv pip install --system \
+          uv pip install --system \
             --override "$RUNNER_TEMP/postproject-override.txt" \
             ./postproject/python ./postproject-openassetio-manager
           POSTPROJECT_ABI_TRACE_DIRECTORY="$PWD/evidence/shared-production" \
