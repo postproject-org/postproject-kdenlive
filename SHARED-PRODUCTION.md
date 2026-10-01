@@ -7,12 +7,12 @@ It is not inferred from directory nesting and is not a network database.
 
 ## Selecting the production
 
-The human chooses an existing production, or a path for a new one, in each
-pilot's PostProject settings. Kdenlive exposes the selection in the project
-settings. The Blender extension exposes it in its add-on preferences and in a
-file-browser operator. Both show the resolved absolute path beside their
-PostProject status. Choosing a production never moves media or changes the
-host project path.
+The human chooses an existing production, or a path for a new one, explicitly
+in each pilot. Kdenlive's current pilot accepts
+`--postproject-production /absolute/path/shared.pproj` at launch. The Blender
+extension exposes the path in its add-on preferences and a file-browser
+operator. Choosing a production never moves media or changes the host project
+path.
 
 For convenience, either host may initially suggest its existing sidecar path.
 Accepting that suggestion is still an explicit selection. Neither host derives
@@ -21,7 +21,7 @@ Blender project root, or a Kdenlive project folder.
 
 Automation supplies the path directly:
 
-- Kdenlive's test helper receives `--postproject-production <path>`;
+- Kdenlive's application and test driver receive the path explicitly;
 - Blender's background script receives the same absolute path after `--`;
 - OpenAssetIO's Manager configuration receives that path through its existing
   entity-reference configuration;
@@ -41,7 +41,7 @@ observed:
 - source content observations and confirmed source locations;
 - Kdenlive proxy representations, their dependency on source content, and the
   activity that generated them;
-- revision origin `org.kde.kdenlive`.
+- revision origin `Kdenlive` plus the application version.
 
 Blender remains authoritative for its `.blend` file and writes:
 
@@ -50,7 +50,7 @@ Blender remains authoritative for its `.blend` file and writes:
 - content observations and confirmed locations for media Blender can read;
 - completed render representations, their source dependencies, and observed
   render provenance;
-- revision origin `org.blender`.
+- revision origin `Blender` plus the application version.
 
 Blender first queries by locator and content evidence. One unambiguous match
 is offered for adoption; adopting attaches Blender's identifier to that asset.
@@ -66,8 +66,9 @@ worker lifecycle and continues to use the job protocol.
 
 ## Observing the other host
 
-Each host stores the last revision it has consumed for the selected
-production. It requests bounded revision pages on these events:
+The automated path reads bounded revision pages after each cross-host write and
+then reads the affected objects. A future interactive notification surface can
+store a revision cursor and use the same sequence on these events:
 
 - immediately after the user selects or opens a production;
 - before a PostProject-assisted relink or save decision;
@@ -79,12 +80,11 @@ an external update. Origin does not suppress state reads: both hosts re-read
 affected objects from PostProject rather than reconstructing state from event
 payloads.
 
-Kdenlive reports Blender's new render in a PostProject media-results panel and
-can resolve it through the existing representation APIs. It never opens the
-`.blend` file. Blender reports confirmed source-locator changes and refreshes
-or relinks affected paths only after an explicit user action. It never opens
-the `.kdenlive` file. A host may defer an update while its own document is
-dirty, but it must continue to show that newer production state exists.
+Kdenlive's scenario assertion observes Blender's new render through revisions
+and resolves it through the existing representation APIs. The pilot does not
+yet add a media-results panel. Blender refreshes or relinks affected paths only
+after an explicit operator action. Kdenlive never opens the `.blend` file, and
+Blender never opens the `.kdenlive` file.
 
 The cross-process waiter is only a local wake-up optimization. Correctness
 comes from reading revisions after the stored cursor, including after process
@@ -97,7 +97,7 @@ The host begins its transaction with that revision as the base. Additive facts
 may commit alongside independent additive facts. A non-mergeable fact that
 changed after the base produces a typed conflict and commits nothing.
 
-On conflict, the host:
+On conflict, the intended interactive host flow:
 
 1. keeps the host document unchanged;
 2. rolls back or resets the PostProject transaction;
@@ -112,35 +112,55 @@ Locator conflicts show the current confirmed locator set and the host's
 proposed set. Unknown conflict kinds fall back to refresh-and-cancel rather
 than last-writer-wins.
 
-In headless tests, a structured conflict is returned to the driver and the
-process exits with a distinct failure code. The driver asserts the conflict
-key and both revisions instead of parsing UI text.
+The current pilots expose structured conflicts to their adapter code but do not
+yet add a conflict dialog. In the headless scenario, the losing Kdenlive path
+asserts the conflict key and both revisions instead of parsing diagnostic text.
 
 ## Automated scenario
 
 The scenario creates media and an empty production in a temporary local
-directory, then invokes normal integration paths in this order:
+directory, then invokes the maintained integration paths in this order:
+
+```mermaid
+sequenceDiagram
+    participant K as Kdenlive
+    participant P as shared.pproj
+    participant B as Blender
+    participant O as OpenAssetIO Manager
+    K->>P: Record camera source and proxy
+    B->>P: Adopt source; record derived render
+    K->>P: Read Blender revision and render
+    O->>P: Resolve render entity reference
+    K->>P: Confirm moved source
+    B->>P: Resolve and relink moved source
+    B->>P: Commit locator choice from base R
+    K-->>P: Competing choice from R
+    P-->>K: Structured locator-set conflict
+    K->>P: Observe changed source content
+    K->>P: Verify proxy and render are stale
+```
 
 1. Kdenlive saves a project and records the camera source.
 2. Blender opens a fixture `.blend`, looks up the same file, and adopts the
    existing asset rather than creating one.
 3. Blender renders a short derived clip and records the completed output.
 4. Kdenlive consumes revisions and resolves that representation.
-5. The driver moves the source; one host resolves and confirms the new
+5. The OpenAssetIO Manager resolves the demonstrated representation from the
+   same production.
+6. The driver moves the source; one host resolves and confirms the new
    location, and the other consumes the resulting revision.
-6. Both hosts read one base revision and propose different confirmed locator
+7. Both hosts read one base revision and propose different confirmed locator
    sets. Exactly one commit succeeds; the loser reports the structured
    conflict and performs no partial write.
-7. The source bytes change. Kdenlive's proxy and Blender's render both evaluate
+8. The source bytes change. Kdenlive's proxy and Blender's render both evaluate
    stale where their recorded dependency policy requires it.
-8. The OpenAssetIO Manager resolves the demonstrated representation from the
-   same production.
 
 Kdenlive runs through its test executable under the CI display environment;
 Blender runs with `--background --factory-startup --python`. The driver passes
 one absolute production path to both. It does not edit the production directly,
 scan for outputs on a host's behalf, or read either application's project file.
 
-The scenario is also run once in both interactive applications before release.
-That check records selection clarity, update visibility, and conflict-dialog
-behavior in the main repository's 0.5 integration findings.
+Before release, a maintainer also runs the path in both interactive
+applications. That check records selection clarity, update visibility, and the
+present absence of conflict UI in the main repository's 0.5 integration
+findings.

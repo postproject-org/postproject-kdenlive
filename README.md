@@ -27,6 +27,10 @@ and keeps track of how each proxy was made.
   `kdenlive:control_uuid`, PostProject content fingerprint, Kdenlive's own
   hash, and location. The `.kdenlive` file itself is never changed by the
   pilot.
+- Passing `--postproject-production /absolute/path/shared.pproj` selects one
+  explicit production instead of the sidecar. This is the pilot's current
+  human-facing shared-production control; it does not infer a path from a
+  Blender project or directory layout.
 - On opening, all missing clips are resolved in one PostProject call under the
   project folder and the clips' former folders. A single match whose Kdenlive
   MD5 equals
@@ -53,6 +57,8 @@ The patches in `patches/` are:
 | `0005` | Record proxy renders in the PostProject sidecar |
 | `0006` | Rebuild proxies the PostProject sidecar reports as stale |
 | `0007` | Test proxies as managed artifacts in the PostProject sidecar |
+| `0008` | Select an explicit PostProject production |
+| `0009` | Exercise Kdenlive's half of the shared-production workflow |
 
 ## Build
 
@@ -77,6 +83,16 @@ tools/test.sh
 build/bin/kdenlive
 ```
 
+To launch the pilot against a production also selected in Blender:
+
+```sh
+build/bin/kdenlive --postproject-production /show/edit/shared.pproj film.kdenlive
+```
+
+`tools/shared-production.sh` is the CI driver for the installed Kdenlive,
+Blender extension, and OpenAssetIO Manager paths. Run it with no arguments in
+the repository to see the required paths in its usage comment.
+
 For a Flatpak build, PostProject's integrator documentation has a tested module
 for the KDE 6.10 SDK that Kdenlive's manifest uses.
 
@@ -96,10 +112,12 @@ not follow every upstream commit.
 
 `.github/workflows/ci.yml` builds the pinned Kdenlive with the patches against
 PostProject `main`, and once more without PostProject. It then runs Kdenlive's
-document-checker tests and the pilot's tests. It runs on every push here, on
-demand, and nightly from PostProject's `kdenlive-pilot` workflow, which can also
-be started by hand against any PostProject revision. A full Kdenlive build is
-too heavy for PostProject's per-pull-request checks.
+document-checker tests and the pilot's tests. The PostProject build also runs
+Kdenlive, Blender, and the OpenAssetIO Manager against one temporary production.
+It runs on every push here, on demand, and nightly from PostProject's
+`kdenlive-pilot` workflow, which can also be started by hand against any
+PostProject revision. A full Kdenlive build is too heavy for PostProject's
+per-pull-request checks.
 
 ## Removing it
 
