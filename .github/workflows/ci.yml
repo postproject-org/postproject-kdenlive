@@ -34,7 +34,7 @@ jobs:
     steps:
       - name: Install Kdenlive build dependencies
         run: |
-          pacman -Syu --noconfirm --needed git base-devel cmake ninja extra-cmake-modules rust
+          pacman -Syu --noconfirm --needed git base-devel cmake ninja extra-cmake-modules rust python-pip uv
           # Arch's own Kdenlive package lists its runtime libraries; the
           # development files ship with them.
           pacman -S --noconfirm --needed $(pacman -Si kdenlive | sed -n 's/^Depends On *: //p')
@@ -47,6 +47,16 @@ jobs:
           repository: postproject-org/postproject
           ref: ${{ inputs.postproject_ref || 'main' }}
           path: postproject
+      - uses: actions/checkout@v7
+        if: matrix.postproject == 'with'
+        with:
+          repository: postproject-org/postproject-blender
+          path: postproject-blender
+      - uses: actions/checkout@v7
+        if: matrix.postproject == 'with'
+        with:
+          repository: postproject-org/postproject-openassetio-manager
+          path: postproject-openassetio-manager
       - name: Build and install PostProject
         if: matrix.postproject == 'with'
         run: |
@@ -73,6 +83,25 @@ jobs:
       - name: Test without PostProject
         if: matrix.postproject == 'without'
         run: tools/test.sh
+      - name: Test one shared production across maintained hosts
+        if: matrix.postproject == 'with'
+        run: |
+          python postproject-blender/tools/fetch_blender.py 5.2.2 postproject-blender/blender
+          postproject-blender/tools/dev.sh postproject-blender/blender/blender postproject
+          echo "postproject @ file://$GITHUB_WORKSPACE/postproject/python" \
+            > "$RUNNER_TEMP/postproject-override.txt"
+          python -m uv pip install --system \
+            --override "$RUNNER_TEMP/postproject-override.txt" \
+            ./postproject/python ./postproject-openassetio-manager
+          POSTPROJECT_ABI_TRACE="$PWD/evidence/shared-production-abi.txt" \
+            tools/shared-production.sh \
+            build \
+            postproject-blender/blender/blender \
+            postproject-blender/dist/postproject_relink-0.1.0-linux_x64.zip \
+            postproject-blender \
+            "$(command -v python)" \
+            postproject-openassetio-manager \
+            postproject/target/release/libpostproject.so
       - uses: actions/upload-artifact@v6
         if: matrix.postproject == 'with'
         with:
