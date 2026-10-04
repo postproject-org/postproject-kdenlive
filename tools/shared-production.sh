@@ -33,6 +33,8 @@ run_kdenlive() {
     POSTPROJECT_SHARED_ACTION=$1 \
     POSTPROJECT_SHARED_ROOT=$root \
     POSTPROJECT_ABI_TRACE=$trace_file \
+    XDG_CONFIG_HOME=$user/kdenlive-config \
+    XDG_CACHE_HOME=$user/kdenlive-cache \
     QT_LOGGING_RULES="*.debug=false;*.info=false" \
     QT_QPA_PLATFORM=offscreen \
     QT_PLUGIN_PATH=$build/bin \
