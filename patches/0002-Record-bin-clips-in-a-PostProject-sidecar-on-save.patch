@@ -379,10 +379,10 @@ index 000000000..98758f0bc
 +        clipFor[{asset.id.bytes(), representation->id.bytes()}] = controlUuid;
 +    }
 +
-+    pp::ResolutionOptions options;
-+    options.addSearchDirectory(utf8(projectFolder));
++    POSTPROJECT_TRY_ASSIGN(auto options, pp::ResolutionOptions::create());
++    POSTPROJECT_TRY(options.addSearchDirectory(utf8(projectFolder)));
 +    for (const QString &folder : folders) {
-+        options.addSearchDirectory(utf8(folder));
++        POSTPROJECT_TRY(options.addSearchDirectory(utf8(folder)));
 +    }
 +    // Every clip is resolved together, so each folder is scanned only once.
 +    POSTPROJECT_TRY_ASSIGN(const std::vector<pp::RepresentationResolution> resolutions, production.resolveAssets(assetIds, options));
