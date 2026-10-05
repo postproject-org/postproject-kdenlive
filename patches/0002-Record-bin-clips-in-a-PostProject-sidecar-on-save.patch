@@ -218,15 +218,15 @@ index 000000000..98758f0bc
 +}
 +
 +// One lookup: the qualifier separates Kdenlive's identifiers from other hosts'.
-+pp::Result<std::optional<pp::Uuid>> findClipAsset(const pp::Production &production, const std::string &controlUuid)
++pp::Result<std::optional<pp::AssetId>> findClipAsset(const pp::Production &production, const std::string &controlUuid)
 +{
 +    POSTPROJECT_TRY_ASSIGN(const std::vector<pp::ObjectRef> objects, production.findByExternalIdentifier(IdentifierScheme, controlUuid, IdentifierQualifier));
 +    for (const pp::ObjectRef &object : objects) {
 +        if (object.kind == pp::ObjectKind::asset) {
-+            return std::optional<pp::Uuid>(object.id);
++            return object.assetId().transform([](auto id) { return std::optional<pp::AssetId>(id); });
 +        }
 +    }
-+    return std::optional<pp::Uuid>();
++    return std::optional<pp::AssetId>();
 +}
 +
 +// The clip's file: the original single-file representation created by import.
@@ -241,7 +241,7 @@ index 000000000..98758f0bc
 +    return std::nullopt;
 +}
 +
-+pp::Result<std::optional<pp::Representation>> clipRepresentation(const pp::Production &production, const pp::Uuid &assetId)
++pp::Result<std::optional<pp::Representation>> clipRepresentation(const pp::Production &production, const pp::AssetId &assetId)
 +{
 +    POSTPROJECT_TRY_ASSIGN(std::vector<pp::Representation> representations, production.representations(assetId));
 +    return clipRepresentation(std::move(representations));
@@ -262,11 +262,11 @@ index 000000000..98758f0bc
 +{
 +    bool changed = false;
 +    for (const BinClip &clip : clips) {
-+        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::Uuid> assetId, findClipAsset(production, clip.controlUuid));
++        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::AssetId> assetId, findClipAsset(production, clip.controlUuid));
 +        if (!assetId) {
-+            POSTPROJECT_TRY_ASSIGN(const pp::Uuid imported, transaction.importMedia(utf8(clip.path), utf8(clip.name)));
++            POSTPROJECT_TRY_ASSIGN(const pp::AssetId imported, transaction.importMedia(utf8(clip.path), utf8(clip.name)));
 +            POSTPROJECT_TRY(
-+                transaction.addExternalIdentifier({pp::ObjectKind::asset, imported}, {IdentifierScheme, clip.controlUuid, std::string(IdentifierQualifier)}));
++                transaction.addExternalIdentifier(pp::ObjectRef::asset(imported), {IdentifierScheme, clip.controlUuid, std::string(IdentifierQualifier)}));
 +            changed = true;
 +            continue;
 +        }
@@ -305,7 +305,7 @@ index 000000000..98758f0bc
 +        if (clip.hash.isEmpty()) {
 +            continue;
 +        }
-+        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::Uuid> assetId, findClipAsset(production, clip.controlUuid));
++        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::AssetId> assetId, findClipAsset(production, clip.controlUuid));
 +        if (!assetId) {
 +            continue;
 +        }
@@ -351,10 +351,10 @@ index 000000000..98758f0bc
 +    // never recorded in the sidecar.
 +    const QString projectFolder = QFileInfo(projectPath).absoluteDir().canonicalPath();
 +    std::set<QString> folders;
-+    std::vector<pp::Uuid> assetIds;
++    std::vector<pp::AssetId> assetIds;
 +    std::map<std::pair<pp::Uuid::Bytes, pp::Uuid::Bytes>, QString> clipFor; // (asset, representation) -> control UUID
 +    for (const pp::Asset &asset : assets) {
-+        pp::Result<std::vector<pp::ExternalIdentifier>> identifiers = production.externalIdentifiers({pp::ObjectKind::asset, asset.id});
++        pp::Result<std::vector<pp::ExternalIdentifier>> identifiers = production.externalIdentifiers(pp::ObjectRef::asset(asset.id));
 +        pp::Result<std::vector<pp::Representation>> representations = production.representations(asset.id);
 +        if (!identifiers.has_value() || !representations.has_value()) {
 +            continue;

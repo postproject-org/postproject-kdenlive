@@ -133,7 +133,7 @@ index 98758f0bc..c857f9944 100644
 +        if (clip.proxy.isEmpty() || clip.hash.isEmpty() || QFileInfo(clip.proxy).completeBaseName().toLatin1() != clip.hash.toHex()) {
 +            continue;
 +        }
-+        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::Uuid> assetId, findClipAsset(production, clip.controlUuid));
++        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::AssetId> assetId, findClipAsset(production, clip.controlUuid));
 +        if (!assetId) {
 +            continue;
 +        }
@@ -196,7 +196,7 @@ index 98758f0bc..c857f9944 100644
 +{
 +    QString sidecar;
 +    pp::Production production;
-+    pp::Uuid assetId;
++    pp::AssetId assetId;
 +    pp::Uuid sourceId;
 +    QString sourcePath;
 +    pp::Uuid jobId;
@@ -221,7 +221,7 @@ index 98758f0bc..c857f9944 100644
 +    }
 +    const pp::Result<void> claimed = [&]() -> pp::Result<void> {
 +        POSTPROJECT_TRY_ASSIGN(pp::Production production, pp::Production::open(utf8(sidecar)));
-+        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::Uuid> assetId, findClipAsset(production, utf8(controlUuid)));
++        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::AssetId> assetId, findClipAsset(production, utf8(controlUuid)));
 +        if (!assetId) {
 +            return {};
 +        }

@@ -60,12 +60,12 @@ index e5f7283e9..8a849ebc8 100644
 +    return postproject::Production::open(QString(projectFolder + QStringLiteral("/film.pproj")).toStdString()).value();
 +}
 +
-+postproject::Uuid clipAsset(const postproject::Production &production)
++postproject::AssetId clipAsset(const postproject::Production &production)
 +{
 +    const auto assets =
 +        production.findByExternalIdentifier("https://postproject.org/id/application", ControlUuid.toStdString(), "org.kde.kdenlive:control_uuid").value();
 +    REQUIRE(assets.size() == 1);
-+    return assets.front().id;
++    return assets.front().assetId().value();
 +}
 +
 +std::vector<postproject::Representation> recordedProxies(const postproject::Production &production)
@@ -133,11 +133,11 @@ index e5f7283e9..8a849ebc8 100644
 +        const auto production = openSidecar(projectFolder);
 +        const auto jobs = proxyJobs(production);
 +        REQUIRE(jobs.size() == 1);
-+        CHECK(jobs.front().state == postproject::JobState::succeeded);
++        CHECK(jobs.front().stateKind() == postproject::JobState::succeeded);
 +        const auto proxies = recordedProxies(production);
 +        REQUIRE(proxies.size() == 1);
-+        REQUIRE(jobs.front().completion.has_value());
-+        CHECK(jobs.front().completion->representation_id == proxies.front().id);
++        REQUIRE(std::holds_alternative<postproject::JobCompletion>(jobs.front().status));
++        CHECK(std::get<postproject::JobCompletion>(jobs.front().status).representation_id == proxies.front().id);
 +        CHECK(postproject::locatorFilePath(proxies.front().resources.front().locators.front().uri).value() == proxyPath.toStdString());
 +
 +        const auto producers = production.activitiesProducing(proxies.front().id).value();
@@ -209,7 +209,7 @@ index e5f7283e9..8a849ebc8 100644
 +        REQUIRE(located.size() == 1);
 +        bool latest = false;
 +        for (const auto &job : jobs) {
-+            latest = latest || (job.completion.has_value() && job.completion->representation_id == located.front());
++            latest = latest || (std::holds_alternative<postproject::JobCompletion>(job.status) && std::get<postproject::JobCompletion>(job.status).representation_id == located.front());
 +        }
 +        CHECK(latest);
 +    }
@@ -225,8 +225,8 @@ index e5f7283e9..8a849ebc8 100644
 +        const auto production = openSidecar(projectFolder);
 +        const auto jobs = proxyJobs(production);
 +        REQUIRE(jobs.size() == 1);
-+        CHECK(jobs.front().state == postproject::JobState::failed);
-+        CHECK(jobs.front().failure_diagnostic == std::optional<std::string>("Conversion failed!"));
++        CHECK(jobs.front().stateKind() == postproject::JobState::failed);
++        CHECK(std::get<postproject::JobFailure>(jobs.front().status).diagnostic == "Conversion failed!");
 +        CHECK(recordedProxies(production).empty());
 +    }
 +
@@ -239,7 +239,7 @@ index e5f7283e9..8a849ebc8 100644
 +
 +        const auto jobs = proxyJobs(openSidecar(projectFolder));
 +        REQUIRE(jobs.size() == 1);
-+        CHECK(jobs.front().state == postproject::JobState::cancelled);
++        CHECK(jobs.front().stateKind() == postproject::JobState::cancelled);
 +    }
 +
 +    SECTION("Saving records a proxy that Kdenlive made before the clip was recorded")

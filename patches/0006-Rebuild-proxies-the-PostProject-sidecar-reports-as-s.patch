@@ -47,7 +47,7 @@ index c857f9944..ee522b72f 100644
 +pp::Result<bool> proxyIsStale(const QString &sidecar, const std::string &controlUuid, const QString &sourcePath, const QString &proxyPath)
 +{
 +    POSTPROJECT_TRY_ASSIGN(pp::Production production, pp::Production::open(utf8(sidecar)));
-+    POSTPROJECT_TRY_ASSIGN(const std::optional<pp::Uuid> assetId, findClipAsset(production, controlUuid));
++    POSTPROJECT_TRY_ASSIGN(const std::optional<pp::AssetId> assetId, findClipAsset(production, controlUuid));
 +    if (!assetId) {
 +        return false;
 +    }

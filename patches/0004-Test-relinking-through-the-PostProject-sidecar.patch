@@ -90,7 +90,7 @@ index 000000000..e5f7283e9
 +    const auto assets =
 +        production.findByExternalIdentifier("https://postproject.org/id/application", ControlUuid.toStdString(), "org.kde.kdenlive:control_uuid").value();
 +    REQUIRE(assets.size() == 1);
-+    const auto representations = production.representations(assets.front().id).value();
++    const auto representations = production.representations(assets.front().assetId().value()).value();
 +    REQUIRE(representations.size() == 1);
 +    REQUIRE(representations.front().resources.size() == 1);
 +    return representations.front().resources.front();

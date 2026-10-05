@@ -61,10 +61,10 @@ index 33d9aa075..ab2d1cf1b 100644
 +    const auto objects =
 +        production.findByExternalIdentifier("https://postproject.org/id/application", ControlUuid.toStdString(), "org.kde.kdenlive:control_uuid").value();
 +    REQUIRE(objects.size() == 1);
-+    const auto assetId = objects.front().id;
++    const auto assetId = objects.front().assetId().value();
 +
 +    if (action == QLatin1String("observe-render")) {
-+        const auto identifiers = production.externalIdentifiers({postproject::ObjectKind::asset, assetId}).value();
++        const auto identifiers = production.externalIdentifiers(postproject::ObjectRef::asset(assetId)).value();
 +        CHECK(std::any_of(identifiers.cbegin(), identifiers.cend(), [](const postproject::ExternalIdentifier &identifier) {
 +            return identifier.qualifier == std::optional<std::string>("org.blender:strip_uuid");
 +        }));
