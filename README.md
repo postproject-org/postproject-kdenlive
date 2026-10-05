@@ -59,6 +59,7 @@ The patches in `patches/` are:
 | `0007` | Test proxies as managed artifacts in the PostProject sidecar |
 | `0008` | Select an explicit PostProject production |
 | `0009` | Exercise Kdenlive's half of the shared-production workflow |
+| `0010` | Carry scoped decision tokens and atomic commit outcomes between hosts |
 
 ## Build
 
