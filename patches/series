@@ -9,3 +9,4 @@
 0009-Exercise-the-shared-production-workflow.patch
 0010-Carry-scoped-decision-tokens-through-the-shared-workflow.patch
 0011-Base-locator-retirement-on-retained-reads.patch
+0012-Inspect-typed-object-reference-alternatives.patch

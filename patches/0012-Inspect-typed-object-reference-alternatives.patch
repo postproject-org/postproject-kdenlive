@@ -1,0 +1,25 @@
+From 8993aed2f8e365e43d68068bad6f112e60edab8c Mon Sep 17 00:00:00 2001
+From: Erich Seifert <dev@erichseifert.de>
+Date: Tue, 6 Oct 2026 23:58:34 +0200
+Subject: [PATCH] refactor: inspect typed object-reference alternatives
+
+---
+ src/doc/postprojectsidecar.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
+index ffee210..647a81f 100644
+--- a/src/doc/postprojectsidecar.cpp
++++ b/src/doc/postprojectsidecar.cpp
+@@ -172,7 +172,7 @@ pp::Result<std::optional<pp::AssetId>> findClipAsset(const pp::Production &produ
+ {
+     POSTPROJECT_TRY_ASSIGN(const std::vector<pp::ObjectRef> objects, production.findByExternalIdentifier(IdentifierScheme, controlUuid, IdentifierQualifier));
+     for (const pp::ObjectRef &object : objects) {
+-        if (object.kind == pp::ObjectKind::asset) {
++        if (object.kind() == pp::ObjectKind::asset) {
+             return object.assetId().transform([](auto id) { return std::optional<pp::AssetId>(id); });
+         }
+     }
+-- 
+2.55.0
+
