@@ -199,7 +199,7 @@ index 98758f0bc..c857f9944 100644
 +    pp::AssetId assetId;
 +    pp::Uuid sourceId;
 +    QString sourcePath;
-+    pp::Uuid jobId;
++    pp::JobId jobId;
 +    pp::Uuid claimId;
 +    std::int64_t startedAt;
 +};
@@ -231,7 +231,7 @@ index 98758f0bc..c857f9944 100644
 +        }
 +        const std::int64_t now = nowMicros();
 +        // The transaction must end before the production moves into the claim.
-+        std::optional<pp::Uuid> jobId;
++        std::optional<pp::JobId> jobId;
 +        std::optional<pp::Uuid> claimId;
 +        {
 +            POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, production.beginTransaction());
