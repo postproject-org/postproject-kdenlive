@@ -325,7 +325,7 @@ index 98758f0bc..c857f9944 100644
 +        activity.tool = pp::ToolIdentity{utf8(QFileInfo(tool).fileName()), std::nullopt, std::nullopt};
 +        activity.inputs = {{claim.sourceId, std::nullopt}};
 +        activity.outputs = {{proxyId, std::nullopt}};
-+        POSTPROJECT_TRY_ASSIGN(const pp::Uuid activityId, transaction.createActivity(activity));
++        POSTPROJECT_TRY_ASSIGN(const pp::ActivityId activityId, transaction.createActivity(activity));
 +        // The arguments are the render's parameters. Machine-local paths are
 +        // replaced, so the activity is enough to render the proxy again.
 +        std::vector<pp::MetadataValue> values;
@@ -334,7 +334,7 @@ index 98758f0bc..c857f9944 100644
 +            values.push_back(pp::MetadataValue::plainString(utf8(argument)));
 +        }
 +        POSTPROJECT_TRY(
-+            transaction.addMetadataValue({pp::ObjectKind::activity, activityId}, ProxyVocabulary, "arguments", pp::MetadataValue::list(std::move(values))));
++            transaction.addMetadataValue(pp::ObjectRef::activity(activityId), ProxyVocabulary, "arguments", pp::MetadataValue::list(std::move(values))));
 +        POSTPROJECT_TRY(transaction.completeJob(claim.jobId, claim.claimId, now, proxyId, activityId));
 +        return transaction.commit();
 +    }();

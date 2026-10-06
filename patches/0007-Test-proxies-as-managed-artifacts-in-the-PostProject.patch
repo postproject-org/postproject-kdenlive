@@ -146,7 +146,7 @@ index e5f7283e9..8a849ebc8 100644
 +        CHECK(producers.front().tool->name == "ffmpeg");
 +        const auto arguments = recordedArguments(production);
 +        REQUIRE(arguments.size() == 1);
-+        CHECK(arguments.front().target == postproject::ObjectRef{postproject::ObjectKind::activity, producers.front().id});
++        CHECK(arguments.front().target == postproject::ObjectRef::activity(producers.front().id));
 +        // Machine-local paths are recorded as placeholders.
 +        using postproject::MetadataValue;
 +        CHECK(arguments.front().value ==
