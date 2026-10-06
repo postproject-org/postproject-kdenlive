@@ -60,6 +60,7 @@ The patches in `patches/` are:
 | `0008` | Select an explicit PostProject production |
 | `0009` | Exercise Kdenlive's half of the shared-production workflow |
 | `0010` | Carry scoped decision tokens and atomic commit outcomes between hosts |
+| `0011` | Retain decision bases for locator retirement during saves and proxy completion |
 
 ## Build
 
