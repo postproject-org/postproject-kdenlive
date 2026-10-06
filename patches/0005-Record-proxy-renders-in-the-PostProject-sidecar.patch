@@ -144,7 +144,7 @@ index 98758f0bc..c857f9944 100644
 +        }
 +        // Observing unchanged content records nothing.
 +        POSTPROJECT_TRY(transaction.observeResourceContent(source->resources.front().id, utf8(clip.path)));
-+        POSTPROJECT_TRY_ASSIGN(const pp::Uuid proxyId, transaction.addSingleFileRepresentation(*assetId, pp::RepresentationKind::proxy, utf8(clip.proxy)));
++        POSTPROJECT_TRY_ASSIGN(const pp::RepresentationId proxyId, transaction.addSingleFileRepresentation(*assetId, pp::RepresentationKind::proxy, utf8(clip.proxy)));
 +        pp::ActivitySpec activity;
 +        activity.kind = ProxyJobKind;
 +        activity.inputs = {{source->id, std::nullopt}};
@@ -197,7 +197,7 @@ index 98758f0bc..c857f9944 100644
 +    QString sidecar;
 +    pp::Production production;
 +    pp::AssetId assetId;
-+    pp::Uuid sourceId;
++    pp::RepresentationId sourceId;
 +    QString sourcePath;
 +    pp::JobId jobId;
 +    pp::Uuid claimId;
@@ -317,7 +317,7 @@ index 98758f0bc..c857f9944 100644
 +                }
 +            }
 +        }
-+        POSTPROJECT_TRY_ASSIGN(const pp::Uuid proxyId, transaction.addSingleFileRepresentation(claim.assetId, pp::RepresentationKind::proxy, utf8(proxyPath)));
++        POSTPROJECT_TRY_ASSIGN(const pp::RepresentationId proxyId, transaction.addSingleFileRepresentation(claim.assetId, pp::RepresentationKind::proxy, utf8(proxyPath)));
 +        pp::ActivitySpec activity;
 +        activity.kind = ProxyJobKind;
 +        activity.started_at_unix_micros = claim.startedAt;

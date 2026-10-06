@@ -20,8 +20,8 @@ index ee522b72f..43769e16e 100644
          }
          // Observing unchanged content records nothing.
          POSTPROJECT_TRY(transaction.observeResourceContent(source->resources.front().id, utf8(clip.path)));
--        POSTPROJECT_TRY_ASSIGN(const pp::Uuid proxyId, transaction.addSingleFileRepresentation(*assetId, pp::RepresentationKind::proxy, utf8(clip.proxy)));
-+        POSTPROJECT_TRY_ASSIGN(const pp::Uuid proxyId, transaction.addRepresentation(*assetId, pp::RepresentationKind::proxy, utf8(clip.proxy)));
+-        POSTPROJECT_TRY_ASSIGN(const pp::RepresentationId proxyId, transaction.addSingleFileRepresentation(*assetId, pp::RepresentationKind::proxy, utf8(clip.proxy)));
++        POSTPROJECT_TRY_ASSIGN(const pp::RepresentationId proxyId, transaction.addRepresentation(*assetId, pp::RepresentationKind::proxy, utf8(clip.proxy)));
          pp::ActivitySpec activity;
          activity.kind = ProxyJobKind;
          activity.inputs = {{source->id, std::nullopt}};
@@ -42,8 +42,8 @@ index ee522b72f..43769e16e 100644
                  }
              }
          }
--        POSTPROJECT_TRY_ASSIGN(const pp::Uuid proxyId, transaction.addSingleFileRepresentation(claim.assetId, pp::RepresentationKind::proxy, utf8(proxyPath)));
-+        POSTPROJECT_TRY_ASSIGN(const pp::Uuid proxyId, transaction.addRepresentation(claim.assetId, pp::RepresentationKind::proxy, utf8(proxyPath)));
+-        POSTPROJECT_TRY_ASSIGN(const pp::RepresentationId proxyId, transaction.addSingleFileRepresentation(claim.assetId, pp::RepresentationKind::proxy, utf8(proxyPath)));
++        POSTPROJECT_TRY_ASSIGN(const pp::RepresentationId proxyId, transaction.addRepresentation(claim.assetId, pp::RepresentationKind::proxy, utf8(proxyPath)));
          pp::ActivitySpec activity;
          activity.kind = ProxyJobKind;
          activity.started_at_unix_micros = claim.startedAt;

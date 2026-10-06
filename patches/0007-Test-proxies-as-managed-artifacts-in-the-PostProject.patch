@@ -200,7 +200,7 @@ index e5f7283e9..8a849ebc8 100644
 +        const auto production = openSidecar(projectFolder);
 +        const auto jobs = proxyJobs(production);
 +        REQUIRE(jobs.size() == 2);
-+        std::vector<postproject::Uuid> located;
++        std::vector<postproject::RepresentationId> located;
 +        for (const auto &proxy : recordedProxies(production)) {
 +            if (!proxy.resources.front().locators.empty()) {
 +                located.push_back(proxy.id);
