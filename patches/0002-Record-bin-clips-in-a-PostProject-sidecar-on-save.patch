@@ -313,7 +313,7 @@ index 000000000..98758f0bc
 +        if (!representation || hasKdenliveHash(representation->resources.front(), clip.hash)) {
 +            continue;
 +        }
-+        const pp::Uuid resourceId = representation->resources.front().id;
++        const pp::ResourceId resourceId = representation->resources.front().id;
 +        POSTPROJECT_TRY(transaction.recordResourceFingerprint(
 +            resourceId, {KdenliveHashAlgorithm, KdenliveHashVersion, std::vector<std::uint8_t>(clip.hash.cbegin(), clip.hash.cend())}));
 +        POSTPROJECT_TRY(transaction.observeResourceContent(resourceId, utf8(clip.path)));
