@@ -1,0 +1,93 @@
+From d4590a2ff8c0e6f6c7d6ee7b923d8e0268ea05e3 Mon Sep 17 00:00:00 2001
+From: Erich Seifert <dev@erichseifert.de>
+Date: Wed, 7 Oct 2026 14:20:04 +0200
+Subject: [PATCH] Use owning authority-timed leases for proxy workers
+
+---
+ src/doc/postprojectsidecar.cpp | 18 +++++++++---------
+ 1 file changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
+index ae0e7c2..a6ef669 100644
+--- a/src/doc/postprojectsidecar.cpp
++++ b/src/doc/postprojectsidecar.cpp
+@@ -18,6 +18,7 @@
+ #include <QFileInfo>
+ #include <QProcess>
+ 
++#include <chrono>
+ #include <cstdint>
+ #include <map>
+ #include <optional>
+@@ -48,7 +49,7 @@ constexpr const char *ProxyJobKind = "org.kde.kdenlive:generate-proxy";
+ constexpr const char *ProxyVocabulary = "https://postproject.org/ns/kdenlive/1";
+ // A claim expires unless the render renews it, so a crashed Kdenlive leaves no
+ // job claimed for long.
+-constexpr std::int64_t ClaimLeaseMicros = 5 * 60 * 1000000LL;
++constexpr auto ClaimLease = std::chrono::minutes(5);
+ constexpr int ClaimRenewalMillis = 60 * 1000;
+ 
+ struct BinClip
+@@ -473,7 +474,7 @@ struct PostProjectSidecar::ProxyJob::Claim
+     pp::RepresentationId sourceId;
+     QString sourcePath;
+     pp::JobId jobId;
+-    pp::Uuid claimId;
++    pp::JobLease lease;
+     std::int64_t startedAt;
+ };
+ 
+@@ -565,7 +566,7 @@ PostProjectSidecar::ProxyJob::ProxyJob(const QString &projectPath, const QString
+         const std::int64_t now = nowMicros();
+         // The transaction must end before the production moves into the claim.
+         std::optional<pp::JobId> jobId;
+-        std::optional<pp::Uuid> claimId;
++        std::optional<pp::JobLease> lease;
+         {
+             POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, view.edit());
+             POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Create proxy clip")));
+@@ -573,10 +574,10 @@ PostProjectSidecar::ProxyJob::ProxyJob(const QString &projectPath, const QString
+             // content records nothing.
+             POSTPROJECT_TRY(transaction.observeResourceContent(source->resources.front().id, utf8(sourcePath)));
+             POSTPROJECT_TRY_ASSIGN(jobId, transaction.requestJob({ProxyJobKind, {source->id}, *assetId, pp::RepresentationKind::proxy, std::nullopt}));
+-            POSTPROJECT_TRY_ASSIGN(claimId, transaction.claimJob(*jobId, kdenliveTool(), std::nullopt, now, now + ClaimLeaseMicros));
++            POSTPROJECT_TRY_ASSIGN(lease, transaction.claimJobLease(*jobId, kdenliveTool(), ClaimLease));
+             POSTPROJECT_TRY(transaction.commit());
+         }
+-        m_claim.reset(new Claim{sidecar, std::move(production), *assetId, source->id, sourcePath, *jobId, *claimId, now});
++        m_claim.reset(new Claim{sidecar, std::move(production), *assetId, source->id, sourcePath, *jobId, std::move(*lease), now});
+         return {};
+     }();
+     if (!claimed.has_value()) {
+@@ -614,9 +615,8 @@ void PostProjectSidecar::ProxyJob::waitForFinished(QProcess &process)
+     }
+     while (!process.waitForFinished(ClaimRenewalMillis) && process.state() != QProcess::NotRunning) {
+         const pp::Result<void> renewed = [&]() -> pp::Result<void> {
+-            const std::int64_t now = nowMicros();
+             POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, m_claim->production.beginTransaction());
+-            POSTPROJECT_TRY(transaction.renewJobClaim(m_claim->jobId, m_claim->claimId, now, now + ClaimLeaseMicros));
++            POSTPROJECT_TRY(transaction.renewJobLease(m_claim->lease, ClaimLease));
+             return transaction.commit();
+         }();
+         if (!renewed.has_value()) {
+@@ -676,7 +676,7 @@ void PostProjectSidecar::ProxyJob::succeed(const QString &proxyPath, const QStri
+         }
+         POSTPROJECT_TRY(
+             transaction.addMetadataValue(pp::ObjectRef::activity(activityId), ProxyVocabulary, "arguments", pp::MetadataValue::list(std::move(values))));
+-        POSTPROJECT_TRY(transaction.completeJob(claim.jobId, claim.claimId, now, proxyId, activityId));
++        POSTPROJECT_TRY(transaction.completeJobLease(claim.lease, proxyId, activityId));
+         return transaction.commit();
+     }();
+     if (!completed.has_value()) {
+@@ -695,7 +695,7 @@ void PostProjectSidecar::ProxyJob::fail(const QString &diagnostic)
+     const pp::Result<void> failed = [&]() -> pp::Result<void> {
+         POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, m_claim->production.beginTransaction());
+         POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Create proxy clip")));
+-        POSTPROJECT_TRY(transaction.failJob(m_claim->jobId, m_claim->claimId, nowMicros(), failureDiagnostic(diagnostic)));
++        POSTPROJECT_TRY(transaction.failJobLease(m_claim->lease, failureDiagnostic(diagnostic)));
+         return transaction.commit();
+     }();
+     if (failed.has_value()) {
+-- 
+2.55.0
+

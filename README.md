@@ -64,6 +64,7 @@ The patches in `patches/` are:
 | `0012` | Inspect typed object references through their read-only discriminator |
 | `0013` | Read clip, hash and proxy save decisions through their edit's retained view |
 | `0014` | Observe proxy sources through the view supplying their edit base |
+| `0015` | Own authority-timed leases through proxy claim, renewal and publication |
 
 ## Build
 
@@ -78,6 +79,9 @@ available; final candidate host qualification is pending.
 Each save phase reads identifiers and representations through a coherent view
 and creates its edit from that view. Concurrent conflicting changes require a
 fresh decision; there is no automatic retry.
+Proxy workers own five-minute leases, renewed explicitly while rendering. The
+SDK checks current ownership and expiry again before publication; freeing a
+lease never writes production state.
 Save decisions cap each clip at 1000 representations. A larger collection logs
 an error and leaves that phase unchanged instead of selecting from a partial page.
 
