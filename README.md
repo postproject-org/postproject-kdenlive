@@ -62,6 +62,7 @@ The patches in `patches/` are:
 | `0010` | Carry scoped decision tokens and atomic commit outcomes between hosts |
 | `0011` | Retain decision bases for locator retirement during saves and proxy completion |
 | `0012` | Inspect typed object references through their read-only discriminator |
+| `0013` | Read clip, hash and proxy save decisions through their edit's retained view |
 
 ## Build
 
@@ -73,6 +74,11 @@ plus an installed PostProject 0.7 development package. Kdenlive links PostProjec
 Resolution option factories and setters now propagate failures immediately
 through the existing Result protocol. The build-disabled fallback remains
 available; final candidate host qualification is pending.
+Each save phase reads identifiers and representations through a coherent view
+and creates its edit from that view. Concurrent conflicting changes require a
+fresh decision; there is no automatic retry.
+Save decisions cap each clip at 1000 representations. A larger collection logs
+an error and leaves that phase unchanged instead of selecting from a partial page.
 
 ```sh
 git clone https://github.com/postproject-org/postproject
