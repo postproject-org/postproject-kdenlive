@@ -65,6 +65,7 @@ The patches in `patches/` are:
 | `0013` | Read clip, hash and proxy save decisions through their edit's retained view |
 | `0014` | Observe proxy sources through the view supplying their edit base |
 | `0015` | Own authority-timed leases through proxy claim, renewal and publication |
+| `0016` | Consume receipt-returning commits in status-only host helpers |
 
 ## Build
 

@@ -1,0 +1,69 @@
+From da91ee67ab6212160e2edc63ca6c524edd0f0aff Mon Sep 17 00:00:00 2001
+From: Erich Seifert <dev@erichseifert.de>
+Date: Wed, 7 Oct 2026 15:07:39 +0200
+Subject: [PATCH] Consume receipt-returning commits in sidecar status helpers
+
+---
+ src/doc/postprojectsidecar.cpp | 18 +++++++++++++-----
+ 1 file changed, 13 insertions(+), 5 deletions(-)
+
+diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
+index a6ef669..d5b24dc 100644
+--- a/src/doc/postprojectsidecar.cpp
++++ b/src/doc/postprojectsidecar.cpp
+@@ -352,7 +352,11 @@ pp::Result<void> recordClips(const QString &sidecar, const QString &projectPath,
+         POSTPROJECT_TRY(transaction.setRevisionContext(context));
+         // The decisions and the edit base come from the same retained view.
+         POSTPROJECT_TRY_ASSIGN(const bool changed, stage(view, transaction, clips));
+-        POSTPROJECT_TRY(changed ? transaction.commit() : transaction.rollback());
++        if (changed) {
++            POSTPROJECT_TRY(transaction.commit());
++        } else {
++            POSTPROJECT_TRY(transaction.rollback());
++        }
+     }
+     return {};
+ }
+@@ -595,7 +599,8 @@ PostProjectSidecar::ProxyJob::~ProxyJob()
+         POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, m_claim->production.beginTransaction());
+         POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Cancel proxy clip")));
+         POSTPROJECT_TRY(transaction.cancelJob(m_claim->jobId));
+-        return transaction.commit();
++        POSTPROJECT_TRY(transaction.commit());
++        return {};
+     }();
+     if (!cancelled.has_value()) {
+         logFailure(m_claim->sidecar, "could not cancel a proxy job", cancelled.error());
+@@ -617,7 +622,8 @@ void PostProjectSidecar::ProxyJob::waitForFinished(QProcess &process)
+         const pp::Result<void> renewed = [&]() -> pp::Result<void> {
+             POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, m_claim->production.beginTransaction());
+             POSTPROJECT_TRY(transaction.renewJobLease(m_claim->lease, ClaimLease));
+-            return transaction.commit();
++            POSTPROJECT_TRY(transaction.commit());
++            return {};
+         }();
+         if (!renewed.has_value()) {
+             logFailure(m_claim->sidecar, "could not renew a proxy job", renewed.error());
+@@ -677,7 +683,8 @@ void PostProjectSidecar::ProxyJob::succeed(const QString &proxyPath, const QStri
+         POSTPROJECT_TRY(
+             transaction.addMetadataValue(pp::ObjectRef::activity(activityId), ProxyVocabulary, "arguments", pp::MetadataValue::list(std::move(values))));
+         POSTPROJECT_TRY(transaction.completeJobLease(claim.lease, proxyId, activityId));
+-        return transaction.commit();
++        POSTPROJECT_TRY(transaction.commit());
++        return {};
+     }();
+     if (!completed.has_value()) {
+         logFailure(claim.sidecar, "could not record a proxy", completed.error());
+@@ -696,7 +703,8 @@ void PostProjectSidecar::ProxyJob::fail(const QString &diagnostic)
+         POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, m_claim->production.beginTransaction());
+         POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Create proxy clip")));
+         POSTPROJECT_TRY(transaction.failJobLease(m_claim->lease, failureDiagnostic(diagnostic)));
+-        return transaction.commit();
++        POSTPROJECT_TRY(transaction.commit());
++        return {};
+     }();
+     if (failed.has_value()) {
+         m_claim.reset();
+-- 
+2.55.0
+

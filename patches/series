@@ -13,3 +13,4 @@
 0013-Read-save-decisions-through-the-retained-view.patch
 0014-Observe-proxy-sources-through-decision-views.patch
 0015-Use-owning-authority-timed-leases-for-proxy-workers.patch
+0016-Consume-receipt-returning-commits-in-sidecar-status-helpers.patch
