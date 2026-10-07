@@ -1,0 +1,58 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Erich Seifert <dev@erichseifert.de>
+Date: Wed, 7 Oct 2026 10:18:48 +0200
+Subject: [PATCH] fix: observe proxy sources through retained decision views
+
+
+diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
+index f453628ca..ae0e7c291 100644
+--- a/src/doc/postprojectsidecar.cpp
++++ b/src/doc/postprojectsidecar.cpp
+@@ -425,11 +425,12 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
+ pp::Result<bool> proxyIsStale(const QString &sidecar, const std::string &controlUuid, const QString &sourcePath, const QString &proxyPath)
+ {
+     POSTPROJECT_TRY_ASSIGN(pp::Production production, pp::Production::open(utf8(sidecar)));
+-    POSTPROJECT_TRY_ASSIGN(const std::optional<pp::AssetId> assetId, findClipAsset(production, controlUuid));
++    POSTPROJECT_TRY_ASSIGN(pp::ReadSession view, production.readSession());
++    POSTPROJECT_TRY_ASSIGN(const std::optional<pp::AssetId> assetId, findClipAsset(view, controlUuid));
+     if (!assetId) {
+         return false;
+     }
+-    POSTPROJECT_TRY_ASSIGN(const std::vector<pp::Representation> representations, production.representations(*assetId));
++    POSTPROJECT_TRY_ASSIGN(const std::vector<pp::Representation> representations, representationsForClip(view, *assetId));
+     const std::optional<pp::Representation> source = clipRepresentation(representations);
+     const std::optional<pp::Representation> proxy = proxyAt(representations, locatorFor(proxyPath));
+     if (!source || !proxy) {
+@@ -438,7 +439,7 @@ pp::Result<bool> proxyIsStale(const QString &sidecar, const std::string &control
+     {
+         // Evaluation reads only recorded knowledge, and another application may
+         // have replaced the source. Observing unchanged content records nothing.
+-        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, production.beginTransaction());
++        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, view.edit());
+         POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Open project")));
+         POSTPROJECT_TRY(transaction.observeResourceContent(source->resources.front().id, utf8(sourcePath)));
+         POSTPROJECT_TRY(transaction.commit());
+@@ -552,11 +553,12 @@ PostProjectSidecar::ProxyJob::ProxyJob(const QString &projectPath, const QString
+     }
+     const pp::Result<void> claimed = [&]() -> pp::Result<void> {
+         POSTPROJECT_TRY_ASSIGN(pp::Production production, pp::Production::open(utf8(sidecar)));
+-        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::AssetId> assetId, findClipAsset(production, utf8(controlUuid)));
++        POSTPROJECT_TRY_ASSIGN(pp::ReadSession view, production.readSession());
++        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::AssetId> assetId, findClipAsset(view, utf8(controlUuid)));
+         if (!assetId) {
+             return {};
+         }
+-        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::Representation> source, clipRepresentation(production, *assetId));
++        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::Representation> source, clipRepresentation(view, *assetId));
+         if (!source) {
+             return {};
+         }
+@@ -565,7 +567,7 @@ PostProjectSidecar::ProxyJob::ProxyJob(const QString &projectPath, const QString
+         std::optional<pp::JobId> jobId;
+         std::optional<pp::Uuid> claimId;
+         {
+-            POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, production.beginTransaction());
++            POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, view.edit());
+             POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Create proxy clip")));
+             // The proxy is made from the source as it is now. Observing unchanged
+             // content records nothing.

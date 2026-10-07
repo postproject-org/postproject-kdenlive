@@ -11,3 +11,4 @@
 0011-Base-locator-retirement-on-retained-reads.patch
 0012-Inspect-typed-object-reference-alternatives.patch
 0013-Read-save-decisions-through-the-retained-view.patch
+0014-Observe-proxy-sources-through-decision-views.patch

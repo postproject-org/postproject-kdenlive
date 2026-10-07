@@ -63,6 +63,7 @@ The patches in `patches/` are:
 | `0011` | Retain decision bases for locator retirement during saves and proxy completion |
 | `0012` | Inspect typed object references through their read-only discriminator |
 | `0013` | Read clip, hash and proxy save decisions through their edit's retained view |
+| `0014` | Observe proxy sources through the view supplying their edit base |
 
 ## Build
 
