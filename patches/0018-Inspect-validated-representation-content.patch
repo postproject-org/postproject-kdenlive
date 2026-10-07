@@ -1,0 +1,25 @@
+From 07b90f0781a6134c57890304db775c01fa7f064a Mon Sep 17 00:00:00 2001
+From: Erich Seifert <dev@erichseifert.de>
+Date: Wed, 7 Oct 2026 21:52:47 +0200
+Subject: [PATCH] refactor: Inspect validated representation content
+
+---
+ src/doc/postprojectsidecar.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
+index d5b24dc..6e88a8c 100644
+--- a/src/doc/postprojectsidecar.cpp
++++ b/src/doc/postprojectsidecar.cpp
+@@ -184,7 +184,7 @@ template <typename Reader> pp::Result<std::optional<pp::AssetId>> findClipAsset(
+ std::optional<pp::Representation> clipRepresentation(std::vector<pp::Representation> representations)
+ {
+     for (pp::Representation &representation : representations) {
+-        if (representation.kind == pp::RepresentationKind::original && representation.structure_kind == pp::ContentStructureKind::single_resource &&
++        if (representation.kind == pp::RepresentationKind::original && representation.structureKind() == pp::ContentStructureKind::single_resource &&
+             representation.resources.size() == 1) {
+             return std::move(representation);
+         }
+-- 
+2.55.0
+
