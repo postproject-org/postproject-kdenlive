@@ -118,6 +118,19 @@ index 84e675a..04bbffc 100644
              Layout.fillWidth: true
              Layout.fillHeight: true
              Layout.rightMargin: 5
+diff --git a/src/timeline2/view/qml/Clip.qml b/src/timeline2/view/qml/Clip.qml
+index 640d417..61b4f5f 100644
+--- a/src/timeline2/view/qml/Clip.qml
++++ b/src/timeline2/view/qml/Clip.qml
+@@ -1529,7 +1529,7 @@ Rectangle {
+                 clip: true
+                 anchors.fill: parent
+                 asynchronous: true
+-                property bool hasKeyframes: false
++                readonly property bool hasKeyframes: item ? (item as K.KeyframeView).hasKeyframes : false
+                 active: clipRoot.visible
+                 visible: status == Loader.Ready && clipRoot.showKeyframes && clipRoot.keyframeModel && hasKeyframes && clipRoot.width > 2 * K.UiUtils.baseSizeMedium
+                 source: clipRoot.hideClipViews || clipRoot.keyframeModel == undefined ? "" : "KeyframeView.qml"
 diff --git a/src/timeline2/view/qml/ClipThumbs.qml b/src/timeline2/view/qml/ClipThumbs.qml
 index e990ec3..6ff2899 100644
 --- a/src/timeline2/view/qml/ClipThumbs.qml
@@ -185,7 +198,7 @@ index e990ec3..6ff2899 100644
                  if (status === Image.Ready && (index === 0  || index === thumbRepeater.count - 1)) {
                      thumbPlaceholder.source = source
 diff --git a/src/timeline2/view/qml/Composition.qml b/src/timeline2/view/qml/Composition.qml
-index ee20d86..97d9291 100644
+index ee20d86..5d1b37e 100644
 --- a/src/timeline2/view/qml/Composition.qml
 +++ b/src/timeline2/view/qml/Composition.qml
 @@ -80,7 +80,7 @@ Item {
@@ -215,20 +228,22 @@ index ee20d86..97d9291 100644
              if (kfrView && kfrView.kfrCanvas) {
                  kfrView.kfrCanvas.requestPaint()
              }
-@@ -483,7 +483,7 @@ Item {
-             active: compositionRoot.visible
-             asynchronous: true
-             visible: status == Loader.Ready && compositionRoot.showKeyframes && compositionRoot.keyframeModel && compositionRoot.width > 2 * K.UiUtils.baseSizeMedium
--            source: compositionRoot.keyframeModel == undefined ? "" : "KeyframeView.qml"
-+            source: compositionRoot.keyframeModel == undefined ? "" : "K.KeyframeView.qml"
-             Binding {
-                     target: effectRow.item
-                     property: "kfrModel"
 diff --git a/src/timeline2/view/qml/KeyframeView.qml b/src/timeline2/view/qml/KeyframeView.qml
-index 1647c4c..c867245 100644
+index 1647c4c..8dc2c6a 100644
 --- a/src/timeline2/view/qml/KeyframeView.qml
 +++ b/src/timeline2/view/qml/KeyframeView.qml
-@@ -46,14 +46,14 @@ Rectangle
+@@ -24,8 +24,9 @@ Rectangle
+     property alias kfrCanvas: keyframecanvas
+     signal seek(int position)
+ 
++    readonly property bool hasKeyframes: kfrCount > 1
++
+     onKfrCountChanged: {
+-        parent.hasKeyframes = kfrCount > 1
+         keyframecanvas.requestPaint()
+     }
+ 
+@@ -46,14 +47,14 @@ Rectangle
  
      Keys.onShortcutOverride: (event) => {
          if (event.key === Qt.Key_Left) {
@@ -246,7 +261,7 @@ index 1647c4c..c867245 100644
                  var oldFrame = activeKeyframe.value
                  var newPos = Math.max(oldFrame - 1 - keyframeContainer.inPoint, 0)
                  if (newPos != oldFrame) {
-@@ -65,10 +65,10 @@ Rectangle
+@@ -65,10 +66,10 @@ Rectangle
          else if (event.key === Qt.Key_Right) {
              if (event.modifiers & Qt.AltModifier) {
                  kfrModel.setActiveKeyframe(Math.min(keyframes.count - 1, ++activeIndex))
@@ -259,7 +274,7 @@ index 1647c4c..c867245 100644
                  var oldFrame = activeKeyframe.value
                  var newPos = Math.min(oldFrame + 1 - keyframeContainer.inPoint, keyframeContainer.outPoint - keyframeContainer.inPoint)
                  if (newPos != oldFrame) {
-@@ -82,13 +82,13 @@ Rectangle
+@@ -82,13 +83,13 @@ Rectangle
              event.accepted = true
          }
          if ((event.key === Qt.Key_Plus) && !(event.modifiers & Qt.ControlModifier)) {
@@ -275,7 +290,7 @@ index 1647c4c..c867245 100644
              var newVal = Math.max(activeKeyframe.value / parent.height - .05, 0)
              kfrModel.updateKeyframe(kfrModel.activeKeyframe(), newVal)
              event.accepted = true
-@@ -105,7 +105,7 @@ Rectangle
+@@ -105,7 +106,7 @@ Rectangle
          Repeater {
              id: keyframes
              model: keyframeContainer.kfrModel
@@ -284,7 +299,7 @@ index 1647c4c..c867245 100644
                  timeScale: root.timeScale
              }
          }
-@@ -152,7 +152,7 @@ Rectangle
+@@ -152,7 +153,7 @@ Rectangle
              ctx.fillStyle = Qt.rgba(0,0,0.8, 0.5);
              paths = []
  
@@ -293,7 +308,7 @@ index 1647c4c..c867245 100644
              var xpos = firstKeyframe.tmpPos - offset
              var ypos = firstKeyframe.tmpVal
              // Add first curve point
-@@ -160,9 +160,9 @@ Rectangle
+@@ -160,9 +161,9 @@ Rectangle
  
              for(var i = 1; i < keyframes.count; i++)
              {
@@ -306,7 +321,7 @@ index 1647c4c..c867245 100644
                  if (i + 1 < keyframes.count) {
                      if (nextKeyframe.tmpPos < offset) {
                          continue;
-@@ -217,7 +217,7 @@ Rectangle
+@@ -217,7 +218,7 @@ Rectangle
                              paths.push(quad.createObject(keyframecanvas, {"x": xpos, "y": ypos, "controlX": nextxpos, "controlY": nextypos} ))
                              break;
                          } else {
@@ -338,7 +353,7 @@ index cc7773e..11dea2f 100644
          z: 2
          timeline: rulerRoot.timeline
 diff --git a/src/timeline2/view/qml/Timeline.qml b/src/timeline2/view/qml/Timeline.qml
-index 1eb07d3..2eb427d 100644
+index 1eb07d3..a5e4060 100644
 --- a/src/timeline2/view/qml/Timeline.qml
 +++ b/src/timeline2/view/qml/Timeline.qml
 @@ -222,7 +222,7 @@ Rectangle {
@@ -350,6 +365,15 @@ index 1eb07d3..2eb427d 100644
      }
  
      function zoomByWheel(wheel) {
+@@ -865,7 +865,7 @@ function getTrackColor(audio, header) {
+         property int upMove: 0
+         keys: ['text/producerslist']
+         enabled: !compoArea.containsDrag
+-        function moveDrop(offset, voffset)
++        function moveDrop(offset, voffset, dropEvent)
+         {
+             if (root.clipBeingDroppedId > -1) {
+                 var yOffset = 0
 @@ -874,7 +874,7 @@ function getTrackColor(audio, header) {
                  }
                  var track = Logic.getTrackIndexFromPos(drag.y + voffset + scrollView.contentY - yOffset)
@@ -359,6 +383,30 @@ index 1eb07d3..2eb427d 100644
                      var frame = Math.floor((drag.x + scrollView.contentX + offset) / root.timeScale)
                      // If the target track changed, recreate the preview clips so that audio mirrors
                      // are correctly assigned for the new target track (e.g. when the new track has
+@@ -892,12 +892,12 @@ function getTrackColor(audio, header) {
+                         }
+                         root.lastDropTrack = targetTrack
+                         if (root.clipBeingDroppedId == -1) {
+-                            drag.accepted=false
++                            if (dropEvent) dropEvent.accepted = false
+                             bubbleHelp.hide()
+                             root.continuousScrolling(drag.x + scrollView.contentX, drag.y + scrollView.contentY, upMove)
+                             return
+                         }
+-                        drag.accepted=true
++                        if (dropEvent) dropEvent.accepted = true
+                         var _audioInfo = root.controller.clipAudioStreamInfo(root.clipBeingDroppedData, targetTrack)
+                         if (_audioInfo[1] >=0 && _audioInfo[0] >=0 && !_audioInfo[2]) {
+                             bubbleHelp.text = KI18n.i18np("Audio: %1 track for %2 streams", "Audio: %1 tracks for %2 streams", _audioInfo[1], _audioInfo[0])
+@@ -936,7 +936,7 @@ function getTrackColor(audio, header) {
+                 }
+             }
+             else {
+-                drag.accepted=false
++                if (dropEvent) dropEvent.accepted = false
+             }
+         }
+         function processDrop()
 @@ -1003,7 +1003,7 @@ function getTrackColor(audio, header) {
                  if (track >= 0  && track < tracksRepeater.count) {
                      var frame = Math.round((drag.x + scrollView.contentX) / root.timeScale)
@@ -368,6 +416,15 @@ index 1eb07d3..2eb427d 100644
                      root.lastDropTrack = root.timeline.activeTrack
                      if (root.controller.normalEdit()) {
                          root.clipBeingDroppedId = insertAndMaybeGroup(root.timeline.activeTrack, frame, root.clipBeingDroppedData)
+@@ -1064,7 +1064,7 @@ function getTrackColor(audio, header) {
+             if (root.clipBeingMovedId == -1) {
+                 if (root.clipBeingDroppedId > -1) {
+                     drag.accepted=true
+-                    moveDrop(0, 0)
++                    moveDrop(0, 0, drag)
+                 } else {
+                     var yOffset = 0
+                     if (root.showSubtitles) {
 @@ -1072,7 +1072,7 @@ function getTrackColor(audio, header) {
                      }
                      var track = Logic.getTrackIndexFromPos(drag.y + scrollView.contentY - yOffset)
