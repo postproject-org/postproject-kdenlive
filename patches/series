@@ -16,3 +16,4 @@
 0016-Consume-receipt-returning-commits-in-sidecar-status-helpers.patch
 0017-Use-point-reads-after-the-representation-convenience-bound.patch
 0018-Inspect-validated-representation-content.patch
+0019-Inspect-checked-resolution-outcomes.patch

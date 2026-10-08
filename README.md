@@ -68,6 +68,7 @@ The patches in `patches/` are:
 | `0016` | Consume receipt-returning commits in status-only host helpers |
 | `0017` | Inspect the original by identity after the convenience bound |
 | `0018` | Inspect the checked representation content value |
+| `0019` | Inspect state and candidates from the checked resolution outcome |
 
 ## Build
 
