@@ -9,6 +9,12 @@ set -eu
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 build=${1:-"$here/build"}
+build=$(cd "$build" && pwd)
+user=$(mktemp -d)
+trap 'rm -rf "$user"' EXIT
 
 export QT_QPA_PLATFORM=offscreen
+export QT_PLUGIN_PATH="$build/bin"
+export XDG_CONFIG_HOME="$user/config"
+export XDG_CACHE_HOME="$user/cache"
 ctest --test-dir "$build" --output-on-failure -R '^(documenttest|postprojecttest)$'
