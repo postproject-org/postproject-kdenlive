@@ -1,11 +1,11 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Erich Seifert <dev@erichseifert.de>
 Date: Wed, 30 Sep 2026 23:40:58 +0200
-Subject: [PATCH 8/9] Select an explicit PostProject production
+Subject: [PATCH 08/10] Select an explicit PostProject production
 
 
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
-index ee522b72f..43769e16e 100644
+index 225ad08f8..9c3b90121 100644
 --- a/src/doc/postprojectsidecar.cpp
 +++ b/src/doc/postprojectsidecar.cpp
 @@ -11,6 +11,7 @@
@@ -16,16 +16,7 @@ index ee522b72f..43769e16e 100644
  #include <QDateTime>
  #include <QDir>
  #include <QDomDocument>
-@@ -315,7 +316,7 @@ pp::Result<bool> stageAdoptedProxies(const pp::Production &production, pp::Trans
-         }
-         // Observing unchanged content records nothing.
-         POSTPROJECT_TRY(transaction.observeResourceContent(source->resources.front().id, utf8(clip.path)));
--        POSTPROJECT_TRY_ASSIGN(const pp::RepresentationId proxyId, transaction.addSingleFileRepresentation(*assetId, pp::RepresentationKind::proxy, utf8(clip.proxy)));
-+        POSTPROJECT_TRY_ASSIGN(const pp::RepresentationId proxyId, transaction.addRepresentation(*assetId, pp::RepresentationKind::proxy, utf8(clip.proxy)));
-         pp::ActivitySpec activity;
-         activity.kind = ProxyJobKind;
-         activity.inputs = {{source->id, std::nullopt}};
-@@ -466,6 +467,12 @@ struct PostProjectSidecar::ProxyJob::Claim
+@@ -485,6 +486,12 @@ struct PostProjectSidecar::ProxyJob::Claim
  
  QString PostProjectSidecar::sidecarPath(const QString &projectPath)
  {
@@ -38,31 +29,6 @@ index ee522b72f..43769e16e 100644
      const QFileInfo project(projectPath);
      return project.absoluteDir().absoluteFilePath(project.completeBaseName() + QStringLiteral(".pproj"));
  }
-@@ -630,7 +637,7 @@ void PostProjectSidecar::ProxyJob::succeed(const QString &proxyPath, const QStri
-                 }
-             }
-         }
--        POSTPROJECT_TRY_ASSIGN(const pp::RepresentationId proxyId, transaction.addSingleFileRepresentation(claim.assetId, pp::RepresentationKind::proxy, utf8(proxyPath)));
-+        POSTPROJECT_TRY_ASSIGN(const pp::RepresentationId proxyId, transaction.addRepresentation(claim.assetId, pp::RepresentationKind::proxy, utf8(proxyPath)));
-         pp::ActivitySpec activity;
-         activity.kind = ProxyJobKind;
-         activity.started_at_unix_micros = claim.startedAt;
-diff --git a/src/doc/postprojectsidecar.h b/src/doc/postprojectsidecar.h
-index 3c512049b..5a570ac32 100644
---- a/src/doc/postprojectsidecar.h
-+++ b/src/doc/postprojectsidecar.h
-@@ -31,7 +31,10 @@ class QProcess;
-  */
- namespace PostProjectSidecar {
- 
--/** @brief Returns the sidecar production path for a project file path. */
-+/**
-+ * @brief Returns the explicitly selected production, or the project's default
-+ * sidecar path.
-+ */
- QString sidecarPath(const QString &projectPath);
- 
- /**
 diff --git a/src/main.cpp b/src/main.cpp
 index 83df480af..e3f2addee 100644
 --- a/src/main.cpp
@@ -92,10 +58,10 @@ index 83df480af..e3f2addee 100644
          QJsonObject report, property;
          QJsonArray properties;
 diff --git a/tests/postprojecttest.cpp b/tests/postprojecttest.cpp
-index 8a849ebc8..33d9aa075 100644
+index 5625ff18f..298a02bee 100644
 --- a/tests/postprojecttest.cpp
 +++ b/tests/postprojecttest.cpp
-@@ -288,6 +288,19 @@ TEST_CASE("Relink missing clips through a PostProject sidecar", "[PostProject]")
+@@ -331,6 +331,19 @@ TEST_CASE("Relink missing clips through a PostProject sidecar", "[PostProject]")
      }
  }
  

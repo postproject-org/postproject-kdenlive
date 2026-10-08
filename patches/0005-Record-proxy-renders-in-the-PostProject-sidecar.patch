@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Erich Seifert <dev@erichseifert.de>
 Date: Mon, 28 Sep 2026 09:08:28 +0200
-Subject: [PATCH 5/9] Record proxy renders in the PostProject sidecar
+Subject: [PATCH 05/10] Record proxy renders in the PostProject sidecar
 
 When a proxy is rendered for a clip the sidecar knows, request a proxy
 job and claim it with Kdenlive as the worker, renewing the claim while
@@ -16,15 +16,10 @@ project saved for the first time, are recorded on save when their name
 carries the clip's present Kdenlive hash.
 
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
-index 98758f0bc..c857f9944 100644
+index 6038040b7..fbc4d6f47 100644
 --- a/src/doc/postprojectsidecar.cpp
 +++ b/src/doc/postprojectsidecar.cpp
-@@ -6,13 +6,16 @@
- 
- #include "postprojectsidecar.h"
- #include "bin/binplaylist.hpp"
-+#include "bin/projectclip.h"
- #include "kdenlive_debug.h"
+@@ -11,10 +11,13 @@
  #include "xml/xml.hpp"
  #include <config-kdenlive.h>
  
@@ -34,9 +29,11 @@ index 98758f0bc..c857f9944 100644
  #include <QFileInfo>
 +#include <QProcess>
  
++#include <chrono>
  #include <cstdint>
  #include <map>
-@@ -38,6 +41,14 @@ constexpr const char *IdentifierQualifier = "org.kde.kdenlive:control_uuid";
+ #include <optional>
+@@ -39,12 +42,22 @@ constexpr const char *IdentifierQualifier = "org.kde.kdenlive:control_uuid";
  // fingerprint next to PostProject's. PostProject stores it but never computes it.
  constexpr const char *KdenliveHashAlgorithm = "kdenlive-file-hash";
  constexpr std::uint16_t KdenliveHashVersion = 1;
@@ -46,12 +43,12 @@ index 98758f0bc..c857f9944 100644
 +constexpr const char *ProxyVocabulary = "https://postproject.org/ns/kdenlive/1";
 +// A claim expires unless the render renews it, so a crashed Kdenlive leaves no
 +// job claimed for long.
-+constexpr std::int64_t ClaimLeaseMicros = 5 * 60 * 1000000LL;
++constexpr auto ClaimLease = std::chrono::minutes(5);
 +constexpr int ClaimRenewalMillis = 60 * 1000;
- 
++
  struct BinClip
  {
-@@ -45,6 +56,7 @@ struct BinClip
+     std::string controlUuid;
      QString path;
      QString name;
      QByteArray hash;
@@ -59,7 +56,7 @@ index 98758f0bc..c857f9944 100644
  };
  
  std::string utf8(const QString &value)
-@@ -74,6 +86,16 @@ bool isInside(const QString &path, const QString &directory)
+@@ -74,6 +87,16 @@ bool isInside(const QString &path, const QString &directory)
      return path == directory || path.startsWith(directory + QLatin1Char('/'));
  }
  
@@ -76,7 +73,7 @@ index 98758f0bc..c857f9944 100644
  void logFailure(const QString &sidecar, const char *action, const pp::Error &error)
  {
      qCWarning(KDENLIVE_LOG) << "PostProject sidecar" << sidecar << action << ":" << fromUtf8(error.message());
-@@ -134,7 +156,11 @@ std::vector<BinClip> fileBackedBinClips(const QString &projectPath, const QDomDo
+@@ -134,7 +157,11 @@ std::vector<BinClip> fileBackedBinClips(const QString &projectPath, const QDomDo
                  name = file.fileName();
              }
              const QByteArray hash = QByteArray::fromHex(Xml::getXmlProperty(element, QStringLiteral("kdenlive:file_hash")).toLatin1());
@@ -89,7 +86,7 @@ index 98758f0bc..c857f9944 100644
          }
      }
      return clips;
-@@ -170,6 +196,27 @@ pp::Result<std::optional<pp::Representation>> clipRepresentation(const pp::Produ
+@@ -179,6 +206,22 @@ template <typename Reader> pp::Result<std::optional<pp::Representation>> clipRep
      return clipRepresentation(std::move(representations));
  }
  
@@ -109,15 +106,10 @@ index 98758f0bc..c857f9944 100644
 +    return std::nullopt;
 +}
 +
-+pp::RevisionContext revisionContext(const char *summary)
-+{
-+    return {pp::OriginIdentity{"Kdenlive", std::string(KDENLIVE_VERSION), std::nullopt}, std::string(summary)};
-+}
-+
- bool hasKdenliveHash(const pp::Resource &resource, const QByteArray &hash)
+ pp::RevisionContext revisionContext(const char *summary)
  {
-     for (const pp::Fingerprint &fingerprint : resource.fingerprints) {
-@@ -245,15 +292,50 @@ pp::Result<bool> stageKdenliveHashes(const pp::Production &production, pp::Trans
+     return {pp::OriginIdentity{"Kdenlive", std::string(KDENLIVE_VERSION), std::nullopt}, std::string(summary)};
+@@ -259,6 +302,40 @@ pp::Result<bool> stageKdenliveHashes(const pp::ReadSession &production, pp::Tran
      return changed;
  }
  
@@ -126,7 +118,7 @@ index 98758f0bc..c857f9944 100644
 +// after its source's hash, so a proxy named after the clip's present hash was
 +// made from the clip's present content. No render was observed, so the
 +// activity names neither the tool nor its arguments.
-+pp::Result<bool> stageAdoptedProxies(const pp::Production &production, pp::Transaction &transaction, const std::vector<BinClip> &clips)
++pp::Result<bool> stageAdoptedProxies(const pp::ReadSession &production, pp::Transaction &transaction, const std::vector<BinClip> &clips)
 +{
 +    bool changed = false;
 +    for (const BinClip &clip : clips) {
@@ -137,14 +129,14 @@ index 98758f0bc..c857f9944 100644
 +        if (!assetId) {
 +            continue;
 +        }
-+        POSTPROJECT_TRY_ASSIGN(const std::vector<pp::Representation> representations, production.representations(*assetId));
++        POSTPROJECT_TRY_ASSIGN(const std::vector<pp::Representation> representations, representationsForClip(production, *assetId));
 +        const std::optional<pp::Representation> source = clipRepresentation(representations);
 +        if (!source || proxyAt(representations, locatorFor(clip.proxy)) || ProjectClip::calculateHash(clip.path).first != clip.hash) {
 +            continue;
 +        }
 +        // Observing unchanged content records nothing.
 +        POSTPROJECT_TRY(transaction.observeResourceContent(source->resources.front().id, utf8(clip.path)));
-+        POSTPROJECT_TRY_ASSIGN(const pp::RepresentationId proxyId, transaction.addSingleFileRepresentation(*assetId, pp::RepresentationKind::proxy, utf8(clip.proxy)));
++        POSTPROJECT_TRY_ASSIGN(const pp::RepresentationId proxyId, transaction.addRepresentation(*assetId, pp::RepresentationKind::proxy, utf8(clip.proxy)));
 +        pp::ActivitySpec activity;
 +        activity.kind = ProxyJobKind;
 +        activity.inputs = {{source->id, std::nullopt}};
@@ -158,20 +150,17 @@ index 98758f0bc..c857f9944 100644
  pp::Result<void> recordClips(const QString &sidecar, const QString &projectPath, const std::vector<BinClip> &clips)
  {
      POSTPROJECT_TRY_ASSIGN(pp::Production production, QFileInfo::exists(sidecar)
-                                                           ? pp::Production::open(utf8(sidecar))
-                                                           : pp::Production::create(utf8(sidecar), utf8(QFileInfo(projectPath).completeBaseName())));
--    const pp::RevisionContext context{pp::OriginIdentity{"Kdenlive", std::string(KDENLIVE_VERSION), std::nullopt}, std::string("Save project")};
-+    const pp::RevisionContext context = revisionContext("Save project");
+@@ -267,7 +344,8 @@ pp::Result<void> recordClips(const QString &sidecar, const QString &projectPath,
+     const pp::RevisionContext context = revisionContext("Save project");
  
--    // New clips must be committed before their resources can take a host hash.
--    for (const auto stage : {&stageClips, &stageKdenliveHashes}) {
-+    // New clips must be committed before their resources can take a host hash
+     // New clips must be committed before their resources can take a host hash
+-        for (const auto stage : {&stageClips, &stageKdenliveHashes}) {
 +    // or their proxies can be recorded.
 +    for (const auto stage : {&stageClips, &stageKdenliveHashes, &stageAdoptedProxies}) {
-         POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, production.beginTransaction());
+         POSTPROJECT_TRY_ASSIGN(pp::ReadSession view, production.readSession());
+         POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, view.edit());
          POSTPROJECT_TRY(transaction.setRevisionContext(context));
-         POSTPROJECT_TRY_ASSIGN(const bool changed, stage(production, transaction, clips));
-@@ -325,8 +407,35 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
+@@ -347,8 +425,35 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
      return paths;
  }
  
@@ -200,14 +189,14 @@ index 98758f0bc..c857f9944 100644
 +    pp::RepresentationId sourceId;
 +    QString sourcePath;
 +    pp::JobId jobId;
-+    pp::Uuid claimId;
++    pp::JobLease lease;
 +    std::int64_t startedAt;
 +};
 +
  QString PostProjectSidecar::sidecarPath(const QString &projectPath)
  {
      const QFileInfo project(projectPath);
-@@ -373,3 +482,156 @@ void PostProjectSidecar::ClipLocator::resolveAll()
+@@ -395,3 +500,161 @@ void PostProjectSidecar::ClipLocator::resolveAll()
      }
      m_located = *std::move(located);
  }
@@ -221,29 +210,30 @@ index 98758f0bc..c857f9944 100644
 +    }
 +    const pp::Result<void> claimed = [&]() -> pp::Result<void> {
 +        POSTPROJECT_TRY_ASSIGN(pp::Production production, pp::Production::open(utf8(sidecar)));
-+        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::AssetId> assetId, findClipAsset(production, utf8(controlUuid)));
++        POSTPROJECT_TRY_ASSIGN(pp::ReadSession view, production.readSession());
++        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::AssetId> assetId, findClipAsset(view, utf8(controlUuid)));
 +        if (!assetId) {
 +            return {};
 +        }
-+        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::Representation> source, clipRepresentation(production, *assetId));
++        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::Representation> source, clipRepresentation(view, *assetId));
 +        if (!source) {
 +            return {};
 +        }
 +        const std::int64_t now = nowMicros();
 +        // The transaction must end before the production moves into the claim.
 +        std::optional<pp::JobId> jobId;
-+        std::optional<pp::Uuid> claimId;
++        std::optional<pp::JobLease> lease;
 +        {
-+            POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, production.beginTransaction());
++            POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, view.edit());
 +            POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Create proxy clip")));
 +            // The proxy is made from the source as it is now. Observing unchanged
 +            // content records nothing.
 +            POSTPROJECT_TRY(transaction.observeResourceContent(source->resources.front().id, utf8(sourcePath)));
 +            POSTPROJECT_TRY_ASSIGN(jobId, transaction.requestJob({ProxyJobKind, {source->id}, *assetId, pp::RepresentationKind::proxy, std::nullopt}));
-+            POSTPROJECT_TRY_ASSIGN(claimId, transaction.claimJob(*jobId, kdenliveTool(), std::nullopt, now, now + ClaimLeaseMicros));
++            POSTPROJECT_TRY_ASSIGN(lease, transaction.claimJobLease(*jobId, kdenliveTool(), ClaimLease));
 +            POSTPROJECT_TRY(transaction.commit());
 +        }
-+        m_claim.reset(new Claim{sidecar, std::move(production), *assetId, source->id, sourcePath, *jobId, *claimId, now});
++        m_claim.reset(new Claim{sidecar, std::move(production), *assetId, source->id, sourcePath, *jobId, std::move(*lease), now});
 +        return {};
 +    }();
 +    if (!claimed.has_value()) {
@@ -261,7 +251,8 @@ index 98758f0bc..c857f9944 100644
 +        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, m_claim->production.beginTransaction());
 +        POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Cancel proxy clip")));
 +        POSTPROJECT_TRY(transaction.cancelJob(m_claim->jobId));
-+        return transaction.commit();
++        POSTPROJECT_TRY(transaction.commit());
++        return {};
 +    }();
 +    if (!cancelled.has_value()) {
 +        logFailure(m_claim->sidecar, "could not cancel a proxy job", cancelled.error());
@@ -281,10 +272,10 @@ index 98758f0bc..c857f9944 100644
 +    }
 +    while (!process.waitForFinished(ClaimRenewalMillis) && process.state() != QProcess::NotRunning) {
 +        const pp::Result<void> renewed = [&]() -> pp::Result<void> {
-+            const std::int64_t now = nowMicros();
 +            POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, m_claim->production.beginTransaction());
-+            POSTPROJECT_TRY(transaction.renewJobClaim(m_claim->jobId, m_claim->claimId, now, now + ClaimLeaseMicros));
-+            return transaction.commit();
++            POSTPROJECT_TRY(transaction.renewJobLease(m_claim->lease, ClaimLease));
++            POSTPROJECT_TRY(transaction.commit());
++            return {};
 +        }();
 +        if (!renewed.has_value()) {
 +            logFailure(m_claim->sidecar, "could not renew a proxy job", renewed.error());
@@ -300,9 +291,10 @@ index 98758f0bc..c857f9944 100644
 +    Claim &claim = *m_claim;
 +    const pp::Result<void> completed = [&]() -> pp::Result<void> {
 +        const std::string proxyLocator = locatorFor(proxyPath);
-+        POSTPROJECT_TRY_ASSIGN(const std::vector<pp::Representation> representations, claim.production.representations(claim.assetId));
++        POSTPROJECT_TRY_ASSIGN(pp::ReadSession view, claim.production.readSession());
++        POSTPROJECT_TRY_ASSIGN(const auto representations, representationsForClip(view, claim.assetId));
 +        const std::int64_t now = nowMicros();
-+        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, claim.production.beginTransaction());
++        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, view.edit());
 +        POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Create proxy clip")));
 +        // A proxy rendered over an older one: the older proxy's content is gone.
 +        for (const pp::Representation &representation : representations) {
@@ -317,7 +309,7 @@ index 98758f0bc..c857f9944 100644
 +                }
 +            }
 +        }
-+        POSTPROJECT_TRY_ASSIGN(const pp::RepresentationId proxyId, transaction.addSingleFileRepresentation(claim.assetId, pp::RepresentationKind::proxy, utf8(proxyPath)));
++        POSTPROJECT_TRY_ASSIGN(const pp::RepresentationId proxyId, transaction.addRepresentation(claim.assetId, pp::RepresentationKind::proxy, utf8(proxyPath)));
 +        pp::ActivitySpec activity;
 +        activity.kind = ProxyJobKind;
 +        activity.started_at_unix_micros = claim.startedAt;
@@ -335,8 +327,9 @@ index 98758f0bc..c857f9944 100644
 +        }
 +        POSTPROJECT_TRY(
 +            transaction.addMetadataValue(pp::ObjectRef::activity(activityId), ProxyVocabulary, "arguments", pp::MetadataValue::list(std::move(values))));
-+        POSTPROJECT_TRY(transaction.completeJob(claim.jobId, claim.claimId, now, proxyId, activityId));
-+        return transaction.commit();
++        POSTPROJECT_TRY(transaction.completeJobLease(claim.lease, proxyId, activityId));
++        POSTPROJECT_TRY(transaction.commit());
++        return {};
 +    }();
 +    if (!completed.has_value()) {
 +        logFailure(claim.sidecar, "could not record a proxy", completed.error());
@@ -354,8 +347,9 @@ index 98758f0bc..c857f9944 100644
 +    const pp::Result<void> failed = [&]() -> pp::Result<void> {
 +        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, m_claim->production.beginTransaction());
 +        POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Create proxy clip")));
-+        POSTPROJECT_TRY(transaction.failJob(m_claim->jobId, m_claim->claimId, nowMicros(), failureDiagnostic(diagnostic)));
-+        return transaction.commit();
++        POSTPROJECT_TRY(transaction.failJobLease(m_claim->lease, failureDiagnostic(diagnostic)));
++        POSTPROJECT_TRY(transaction.commit());
++        return {};
 +    }();
 +    if (failed.has_value()) {
 +        m_claim.reset();
@@ -365,28 +359,10 @@ index 98758f0bc..c857f9944 100644
 +    }
 +}
 diff --git a/src/doc/postprojectsidecar.h b/src/doc/postprojectsidecar.h
-index 4cf51a685..c83838e74 100644
+index 5bc63d8de..ebae6ee73 100644
 --- a/src/doc/postprojectsidecar.h
 +++ b/src/doc/postprojectsidecar.h
-@@ -8,8 +8,12 @@
- 
- #include <QHash>
- #include <QString>
-+#include <QStringList>
-+
-+#include <memory>
- 
- class QDomDocument;
-+class QProcess;
- 
- /**
-  * @brief Experimental PostProject sidecar used to relink missing clips by content.
-@@ -36,9 +40,45 @@ QString sidecarPath(const QString &projectPath);
-  * Creates the sidecar when the project has at least one such clip. Clips seen for
-  * the first time are imported and fingerprinted; a known clip whose file moved
-  * gets its new location confirmed and its vanished former locations retired.
-+ * A proxy that Kdenlive made before the clip was recorded is recorded as derived
-+ * from the clip when its name carries the clip's present Kdenlive hash.
+@@ -48,6 +48,40 @@ QString sidecarPath(const QString &projectPath);
   */
  void recordProject(const QString &projectPath, const QDomDocument &scene);
  

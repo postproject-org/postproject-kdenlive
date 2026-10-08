@@ -59,17 +59,7 @@ The patches in `patches/` are:
 | `0007` | Test proxies as managed artifacts in the PostProject sidecar |
 | `0008` | Select an explicit PostProject production |
 | `0009` | Exercise Kdenlive's half of the shared-production workflow |
-| `0010` | Carry scoped decision tokens and atomic commit outcomes between hosts |
-| `0011` | Retain decision bases for locator retirement during saves and proxy completion |
-| `0012` | Inspect typed object references through their read-only discriminator |
-| `0013` | Read clip, hash and proxy save decisions through their edit's retained view |
-| `0014` | Observe proxy sources through the view supplying their edit base |
-| `0015` | Own authority-timed leases through proxy claim, renewal and publication |
-| `0016` | Consume receipt-returning commits in status-only host helpers |
-| `0017` | Inspect the original by identity after the convenience bound |
-| `0018` | Inspect the checked representation content value |
-| `0019` | Inspect state and candidates from the checked resolution outcome |
-| `0020` | Return thumbnail counts explicitly for Qt 6.12 QML linting |
+| `0010` | Return thumbnail counts explicitly for Qt 6.12 QML linting |
 
 ## Build
 

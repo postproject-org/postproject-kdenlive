@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Erich Seifert <dev@erichseifert.de>
 Date: Sun, 27 Sep 2026 14:34:34 +0200
-Subject: [PATCH 4/9] Test relinking through the PostProject sidecar
+Subject: [PATCH 04/10] Test relinking through the PostProject sidecar
 
 Cover a renamed clip, a clip outside the project folder, a relink
 recorded on the next save with its former location retired or kept,
@@ -25,10 +25,10 @@ index e1a7c9bbb..a9fabe7bd 100644
  
 diff --git a/tests/postprojecttest.cpp b/tests/postprojecttest.cpp
 new file mode 100644
-index 000000000..e5f7283e9
+index 000000000..7ca2ea9f9
 --- /dev/null
 +++ b/tests/postprojecttest.cpp
-@@ -0,0 +1,248 @@
+@@ -0,0 +1,297 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 Erich Seifert <dev@erichseifert.de>
 +
@@ -41,10 +41,13 @@ index 000000000..e5f7283e9
 +#include "doc/postprojectsidecar.h"
 +#include "xml/xml.hpp"
 +
++#include <QFile>
 +#include <QTemporaryDir>
 +#include <QUuid>
 +
 +#include <postproject/postproject.hpp>
++
++#include <algorithm>
 +
 +namespace {
 +
@@ -58,9 +61,15 @@ index 000000000..e5f7283e9
 +    return QString::fromLatin1(ProjectClip::calculateHash(path).first.toHex());
 +}
 +
-+// The saved form of a project with one bin clip, as Kdenlive writes it.
-+QDomDocument projectScene(const QString &root, const QString &resource, const QString &hash)
++// The saved form of a project with one bin clip, as Kdenlive writes it. With a
++// proxy, the resource names the proxy and originalurl the clip.
++QDomDocument projectScene(const QString &root, const QString &resource, const QString &hash, const QString &proxy = QString())
 +{
++    const QString proxyProperties = proxy.isEmpty() ? QString()
++                                                    : QStringLiteral(R"(
++  <property name="kdenlive:proxy">%1</property>
++  <property name="kdenlive:originalurl">%2</property>)")
++                                                          .arg(proxy, resource);
 +    const QString xml = QStringLiteral(R"(<?xml version="1.0" encoding="utf-8"?>
 +<mlt LC_NUMERIC="C" producer="main_bin" root="%1" version="7.40.0">
 + <chain id="chain0" out="100">
@@ -69,7 +78,7 @@ index 000000000..e5f7283e9
 +  <property name="kdenlive:id">2</property>
 +  <property name="kdenlive:clipname">interview</property>
 +  <property name="kdenlive:control_uuid">%3</property>
-+  <property name="kdenlive:file_hash">%4</property>
++  <property name="kdenlive:file_hash">%4</property>%5
 + </chain>
 + <playlist id="main_bin">
 +  <property name="kdenlive:docproperties.documentid">1700000000000</property>
@@ -77,7 +86,7 @@ index 000000000..e5f7283e9
 + </playlist>
 +</mlt>
 +)")
-+                            .arg(root, resource, ControlUuid, hash);
++                            .arg(root, proxy.isEmpty() ? resource : proxy, ControlUuid, hash, proxyProperties);
 +    QDomDocument doc;
 +    REQUIRE(doc.setContent(xml));
 +    return doc;
@@ -121,6 +130,46 @@ index 000000000..e5f7283e9
 +}
 +
 +} // namespace
++
++TEST_CASE("PostProject save refuses a truncated representation decision", "[PostProject]")
++{
++    QTemporaryDir project;
++    REQUIRE(project.isValid());
++    const QString source = project.filePath(QStringLiteral("clip.dat"));
++    const QString moved = project.filePath(QStringLiteral("moved.dat"));
++    const QString projectPath = project.filePath(QStringLiteral("film.kdenlive"));
++    QFile file(source);
++    REQUIRE(file.open(QIODevice::WriteOnly));
++    REQUIRE(file.write("bounded save fixture") == 20);
++    file.close();
++    const QString hash = kdenliveHash(source);
++    PostProjectSidecar::recordProject(projectPath, projectScene(project.path(), source, hash));
++    auto production = openSidecar(project.path());
++    const auto asset = clipAsset(production);
++    const auto initial = production.representations(asset).value();
++    REQUIRE(initial.size() == 1);
++    const auto originalId = initial.front().id;
++    {
++        auto transaction = production.beginTransaction().value();
++        for (int i = 0; i < 1000; ++i) {
++            REQUIRE(transaction.addRepresentation(asset, postproject::RepresentationKind::proxy, source.toStdString()));
++        }
++        REQUIRE(transaction.commit());
++    }
++    const auto head = production.latestRevision().value();
++    REQUIRE(head);
++    const auto originalLocator = postproject::fileLocator(source.toStdString()).value();
++    REQUIRE(QFile::rename(source, moved));
++    PostProjectSidecar::recordProject(projectPath, projectScene(project.path(), moved, hash));
++    CHECK(production.latestRevision().value()->id == head->id);
++    const auto collection = production.representations(asset);
++    REQUIRE_FALSE(collection);
++    CHECK(collection.error().code() == postproject::ErrorCode::unsupported);
++    const auto original = production.representation(originalId).value();
++    REQUIRE(original.resources.size() == 1);
++    REQUIRE(original.resources.front().locators.size() == 1);
++    CHECK(original.resources.front().locators.front().uri == originalLocator);
++}
 +
 +TEST_CASE("Relink missing clips through a PostProject sidecar", "[PostProject]")
 +{

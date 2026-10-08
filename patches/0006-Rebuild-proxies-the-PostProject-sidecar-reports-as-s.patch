@@ -1,7 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Erich Seifert <dev@erichseifert.de>
 Date: Mon, 28 Sep 2026 09:08:38 +0200
-Subject: [PATCH 6/9] Rebuild proxies the PostProject sidecar reports as stale
+Subject: [PATCH 06/10] Rebuild proxies the PostProject sidecar reports as
+ stale
 
 Kdenlive checks a proxied clip's hash only when its proxy is missing,
 so a replaced source keeps playing its old proxy. When a project
@@ -34,10 +35,10 @@ index 956ffc16b..3dfccb7d2 100644
          return resource;
      }
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
-index c857f9944..ee522b72f 100644
+index fbc4d6f47..225ad08f8 100644
 --- a/src/doc/postprojectsidecar.cpp
 +++ b/src/doc/postprojectsidecar.cpp
-@@ -407,6 +407,34 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
+@@ -425,6 +425,35 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
      return paths;
  }
  
@@ -47,11 +48,12 @@ index c857f9944..ee522b72f 100644
 +pp::Result<bool> proxyIsStale(const QString &sidecar, const std::string &controlUuid, const QString &sourcePath, const QString &proxyPath)
 +{
 +    POSTPROJECT_TRY_ASSIGN(pp::Production production, pp::Production::open(utf8(sidecar)));
-+    POSTPROJECT_TRY_ASSIGN(const std::optional<pp::AssetId> assetId, findClipAsset(production, controlUuid));
++    POSTPROJECT_TRY_ASSIGN(pp::ReadSession view, production.readSession());
++    POSTPROJECT_TRY_ASSIGN(const std::optional<pp::AssetId> assetId, findClipAsset(view, controlUuid));
 +    if (!assetId) {
 +        return false;
 +    }
-+    POSTPROJECT_TRY_ASSIGN(const std::vector<pp::Representation> representations, production.representations(*assetId));
++    POSTPROJECT_TRY_ASSIGN(const std::vector<pp::Representation> representations, representationsForClip(view, *assetId));
 +    const std::optional<pp::Representation> source = clipRepresentation(representations);
 +    const std::optional<pp::Representation> proxy = proxyAt(representations, locatorFor(proxyPath));
 +    if (!source || !proxy) {
@@ -60,7 +62,7 @@ index c857f9944..ee522b72f 100644
 +    {
 +        // Evaluation reads only recorded knowledge, and another application may
 +        // have replaced the source. Observing unchanged content records nothing.
-+        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, production.beginTransaction());
++        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, view.edit());
 +        POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Open project")));
 +        POSTPROJECT_TRY(transaction.observeResourceContent(source->resources.front().id, utf8(sourcePath)));
 +        POSTPROJECT_TRY(transaction.commit());
@@ -72,7 +74,7 @@ index c857f9944..ee522b72f 100644
  // The end of a render log, within PostProject's bound for a failure diagnostic.
  std::string failureDiagnostic(const QString &log)
  {
-@@ -483,6 +511,20 @@ void PostProjectSidecar::ClipLocator::resolveAll()
+@@ -501,6 +530,20 @@ void PostProjectSidecar::ClipLocator::resolveAll()
      m_located = *std::move(located);
  }
  
@@ -94,10 +96,10 @@ index c857f9944..ee522b72f 100644
  {
      // An unsaved project has no sidecar.
 diff --git a/src/doc/postprojectsidecar.h b/src/doc/postprojectsidecar.h
-index c83838e74..3c512049b 100644
+index ebae6ee73..5a570ac32 100644
 --- a/src/doc/postprojectsidecar.h
 +++ b/src/doc/postprojectsidecar.h
-@@ -45,6 +45,16 @@ QString sidecarPath(const QString &projectPath);
+@@ -48,6 +48,16 @@ QString sidecarPath(const QString &projectPath);
   */
  void recordProject(const QString &projectPath, const QDomDocument &scene);
  

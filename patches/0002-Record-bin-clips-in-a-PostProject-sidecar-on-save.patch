@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Erich Seifert <dev@erichseifert.de>
 Date: Sun, 27 Sep 2026 14:34:33 +0200
-Subject: [PATCH 2/9] Record bin clips in a PostProject sidecar on save
+Subject: [PATCH 02/10] Record bin clips in a PostProject sidecar on save
 
 Saving film.kdenlive records each file-backed bin clip in film.pproj:
 an imported asset with PostProject's content fingerprint, keyed by
@@ -71,10 +71,10 @@ index fa23b1019..4eec86075 100644
      const QString timeStamp = info.lastModified().toString(QStringLiteral("yyyy-MM-dd-hh-mm"));
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
 new file mode 100644
-index 000000000..98758f0bc
+index 000000000..6038040b7
 --- /dev/null
 +++ b/src/doc/postprojectsidecar.cpp
-@@ -0,0 +1,375 @@
+@@ -0,0 +1,397 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 Erich Seifert <dev@erichseifert.de>
 +
@@ -83,6 +83,7 @@ index 000000000..98758f0bc
 +
 +#include "postprojectsidecar.h"
 +#include "bin/binplaylist.hpp"
++#include "bin/projectclip.h"
 +#include "kdenlive_debug.h"
 +#include "xml/xml.hpp"
 +#include <config-kdenlive.h>
@@ -115,7 +116,6 @@ index 000000000..98758f0bc
 +// fingerprint next to PostProject's. PostProject stores it but never computes it.
 +constexpr const char *KdenliveHashAlgorithm = "kdenlive-file-hash";
 +constexpr std::uint16_t KdenliveHashVersion = 1;
-+
 +struct BinClip
 +{
 +    std::string controlUuid;
@@ -218,11 +218,11 @@ index 000000000..98758f0bc
 +}
 +
 +// One lookup: the qualifier separates Kdenlive's identifiers from other hosts'.
-+pp::Result<std::optional<pp::AssetId>> findClipAsset(const pp::Production &production, const std::string &controlUuid)
++template <typename Reader> pp::Result<std::optional<pp::AssetId>> findClipAsset(const Reader &production, const std::string &controlUuid)
 +{
 +    POSTPROJECT_TRY_ASSIGN(const std::vector<pp::ObjectRef> objects, production.findByExternalIdentifier(IdentifierScheme, controlUuid, IdentifierQualifier));
 +    for (const pp::ObjectRef &object : objects) {
-+        if (object.kind == pp::ObjectKind::asset) {
++        if (object.kind() == pp::ObjectKind::asset) {
 +            return object.assetId().transform([](auto id) { return std::optional<pp::AssetId>(id); });
 +        }
 +    }
@@ -233,7 +233,7 @@ index 000000000..98758f0bc
 +std::optional<pp::Representation> clipRepresentation(std::vector<pp::Representation> representations)
 +{
 +    for (pp::Representation &representation : representations) {
-+        if (representation.kind == pp::RepresentationKind::original && representation.structure_kind == pp::ContentStructureKind::single_resource &&
++        if (representation.kind == pp::RepresentationKind::original && representation.structureKind() == pp::ContentStructureKind::single_resource &&
 +            representation.resources.size() == 1) {
 +            return std::move(representation);
 +        }
@@ -241,10 +241,24 @@ index 000000000..98758f0bc
 +    return std::nullopt;
 +}
 +
-+pp::Result<std::optional<pp::Representation>> clipRepresentation(const pp::Production &production, const pp::AssetId &assetId)
++template <typename Reader> pp::Result<std::vector<pp::Representation>> representationsForClip(const Reader &production, const pp::AssetId &assetId)
 +{
-+    POSTPROJECT_TRY_ASSIGN(std::vector<pp::Representation> representations, production.representations(assetId));
++    POSTPROJECT_TRY_ASSIGN(auto page, production.representations(assetId, 1000));
++    if (page.next_cursor) {
++        return pp::Error(pp::ErrorCode::unsupported, "Clip has more than 1000 representations; refusing an incomplete decision");
++    }
++    return std::move(page.items);
++}
++
++template <typename Reader> pp::Result<std::optional<pp::Representation>> clipRepresentation(const Reader &production, const pp::AssetId &assetId)
++{
++    POSTPROJECT_TRY_ASSIGN(std::vector<pp::Representation> representations, representationsForClip(production, assetId));
 +    return clipRepresentation(std::move(representations));
++}
++
++pp::RevisionContext revisionContext(const char *summary)
++{
++    return {pp::OriginIdentity{"Kdenlive", std::string(KDENLIVE_VERSION), std::nullopt}, std::string(summary)};
 +}
 +
 +bool hasKdenliveHash(const pp::Resource &resource, const QByteArray &hash)
@@ -258,7 +272,7 @@ index 000000000..98758f0bc
 +}
 +
 +// Records new clips and relinks; returns whether anything was staged.
-+pp::Result<bool> stageClips(const pp::Production &production, pp::Transaction &transaction, const std::vector<BinClip> &clips)
++pp::Result<bool> stageClips(const pp::ReadSession &production, pp::Transaction &transaction, const std::vector<BinClip> &clips)
 +{
 +    bool changed = false;
 +    for (const BinClip &clip : clips) {
@@ -298,7 +312,7 @@ index 000000000..98758f0bc
 +// Keeps Kdenlive's own hash of each clip as a host fingerprint. Recording any
 +// resource fingerprint leaves its representation pending recomputation, so the
 +// clip's present content is observed in the same transaction.
-+pp::Result<bool> stageKdenliveHashes(const pp::Production &production, pp::Transaction &transaction, const std::vector<BinClip> &clips)
++pp::Result<bool> stageKdenliveHashes(const pp::ReadSession &production, pp::Transaction &transaction, const std::vector<BinClip> &clips)
 +{
 +    bool changed = false;
 +    for (const BinClip &clip : clips) {
@@ -327,14 +341,20 @@ index 000000000..98758f0bc
 +    POSTPROJECT_TRY_ASSIGN(pp::Production production, QFileInfo::exists(sidecar)
 +                                                          ? pp::Production::open(utf8(sidecar))
 +                                                          : pp::Production::create(utf8(sidecar), utf8(QFileInfo(projectPath).completeBaseName())));
-+    const pp::RevisionContext context{pp::OriginIdentity{"Kdenlive", std::string(KDENLIVE_VERSION), std::nullopt}, std::string("Save project")};
++    const pp::RevisionContext context = revisionContext("Save project");
 +
-+    // New clips must be committed before their resources can take a host hash.
-+    for (const auto stage : {&stageClips, &stageKdenliveHashes}) {
-+        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, production.beginTransaction());
++    // New clips must be committed before their resources can take a host hash
++        for (const auto stage : {&stageClips, &stageKdenliveHashes}) {
++        POSTPROJECT_TRY_ASSIGN(pp::ReadSession view, production.readSession());
++        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, view.edit());
 +        POSTPROJECT_TRY(transaction.setRevisionContext(context));
-+        POSTPROJECT_TRY_ASSIGN(const bool changed, stage(production, transaction, clips));
-+        POSTPROJECT_TRY(changed ? transaction.commit() : transaction.rollback());
++        // The decisions and the edit base come from the same retained view.
++        POSTPROJECT_TRY_ASSIGN(const bool changed, stage(view, transaction, clips));
++        if (changed) {
++            POSTPROJECT_TRY(transaction.commit());
++        } else {
++            POSTPROJECT_TRY(transaction.rollback());
++        }
 +    }
 +    return {};
 +}
@@ -344,7 +364,12 @@ index 000000000..98758f0bc
 +pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QString &projectPath)
 +{
 +    POSTPROJECT_TRY_ASSIGN(const pp::Production production, pp::Production::open(utf8(sidecar)));
-+    POSTPROJECT_TRY_ASSIGN(const std::vector<pp::Asset> assets, production.assets());
++    POSTPROJECT_TRY_ASSIGN(pp::ReadSession view, production.readSession());
++    POSTPROJECT_TRY_ASSIGN(const auto page, view.assets(1000));
++    if (page.next_cursor) {
++        return pp::Error(pp::ErrorCode::unsupported, "Production has more than 1000 assets; refusing an incomplete relink decision");
++    }
++    const auto &assets = page.items;
 +
 +    // Search the project folder as it is now, and each former clip folder
 +    // outside it that still exists on this machine. Search directories are
@@ -354,18 +379,15 @@ index 000000000..98758f0bc
 +    std::vector<pp::AssetId> assetIds;
 +    std::map<std::pair<pp::Uuid::Bytes, pp::Uuid::Bytes>, QString> clipFor; // (asset, representation) -> control UUID
 +    for (const pp::Asset &asset : assets) {
-+        pp::Result<std::vector<pp::ExternalIdentifier>> identifiers = production.externalIdentifiers(pp::ObjectRef::asset(asset.id));
-+        pp::Result<std::vector<pp::Representation>> representations = production.representations(asset.id);
-+        if (!identifiers.has_value() || !representations.has_value()) {
-+            continue;
-+        }
++        POSTPROJECT_TRY_ASSIGN(const auto identifiers, view.externalIdentifiers(pp::ObjectRef::asset(asset.id)));
++        POSTPROJECT_TRY_ASSIGN(auto representations, representationsForClip(view, asset.id));
 +        QString controlUuid;
-+        for (const pp::ExternalIdentifier &identifier : *identifiers) {
++        for (const pp::ExternalIdentifier &identifier : identifiers) {
 +            if (identifier.scheme == IdentifierScheme && identifier.qualifier == IdentifierQualifier) {
 +                controlUuid = fromUtf8(identifier.value);
 +            }
 +        }
-+        const std::optional<pp::Representation> representation = clipRepresentation(*std::move(representations));
++        const std::optional<pp::Representation> representation = clipRepresentation(std::move(representations));
 +        if (controlUuid.isEmpty() || !representation) {
 +            continue;
 +        }
@@ -385,7 +407,7 @@ index 000000000..98758f0bc
 +        POSTPROJECT_TRY(options.addSearchDirectory(utf8(folder)));
 +    }
 +    // Every clip is resolved together, so each folder is scanned only once.
-+    POSTPROJECT_TRY_ASSIGN(const std::vector<pp::RepresentationResolution> resolutions, production.resolveAssets(assetIds, options));
++    POSTPROJECT_TRY_ASSIGN(const std::vector<pp::RepresentationResolution> resolutions, view.resolveAssets(assetIds, options));
 +    QHash<QString, QString> paths;
 +    for (const pp::RepresentationResolution &resolution : resolutions) {
 +        const auto clip = clipFor.find({resolution.asset_id.bytes(), resolution.representation_id.bytes()});
@@ -393,10 +415,10 @@ index 000000000..98758f0bc
 +            continue;
 +        }
 +        const pp::ResourceResolution &resource = resolution.resources.front();
-+        const bool located = resource.state == pp::ResourceResolutionState::online_at_known_locator ||
-+                             resource.state == pp::ResourceResolutionState::resolved_exact || resource.state == pp::ResourceResolutionState::resolved_probable;
-+        if (located && resource.candidates.size() == 1) {
-+            paths.insert(clip->second, pathFor(resource.candidates.front().uri));
++        const bool located = resource.state() == pp::ResourceResolutionState::online_at_known_locator ||
++                             resource.state() == pp::ResourceResolutionState::resolved_exact || resource.state() == pp::ResourceResolutionState::resolved_probable;
++        if (located && resource.candidates().size() == 1) {
++            paths.insert(clip->second, pathFor(resource.candidates().front().uri));
 +        }
 +    }
 +    return paths;
@@ -452,10 +474,10 @@ index 000000000..98758f0bc
 +}
 diff --git a/src/doc/postprojectsidecar.h b/src/doc/postprojectsidecar.h
 new file mode 100644
-index 000000000..4cf51a685
+index 000000000..5bc63d8de
 --- /dev/null
 +++ b/src/doc/postprojectsidecar.h
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,77 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 Erich Seifert <dev@erichseifert.de>
 +
@@ -466,8 +488,12 @@ index 000000000..4cf51a685
 +
 +#include <QHash>
 +#include <QString>
++#include <QStringList>
++
++#include <memory>
 +
 +class QDomDocument;
++class QProcess;
 +
 +/**
 + * @brief Experimental PostProject sidecar used to relink missing clips by content.
@@ -485,7 +511,10 @@ index 000000000..4cf51a685
 + */
 +namespace PostProjectSidecar {
 +
-+/** @brief Returns the sidecar production path for a project file path. */
++/**
++ * @brief Returns the explicitly selected production, or the project's default
++ * sidecar path.
++ */
 +QString sidecarPath(const QString &projectPath);
 +
 +/**
@@ -494,6 +523,8 @@ index 000000000..4cf51a685
 + * Creates the sidecar when the project has at least one such clip. Clips seen for
 + * the first time are imported and fingerprinted; a known clip whose file moved
 + * gets its new location confirmed and its vanished former locations retired.
++ * A proxy that Kdenlive made before the clip was recorded is recorded as derived
++ * from the clip when its name carries the clip's present Kdenlive hash.
 + */
 +void recordProject(const QString &projectPath, const QDomDocument &scene);
 +

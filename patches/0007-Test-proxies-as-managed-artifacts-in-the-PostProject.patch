@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Erich Seifert <dev@erichseifert.de>
 Date: Mon, 28 Sep 2026 09:08:39 +0200
-Subject: [PATCH 7/9] Test proxies as managed artifacts in the PostProject
+Subject: [PATCH 07/10] Test proxies as managed artifacts in the PostProject
  sidecar
 
 Cover a render recorded as a completed job with its activity and
@@ -12,46 +12,10 @@ the first save, a proxy named after other content, and clips the
 sidecar does not know.
 
 diff --git a/tests/postprojecttest.cpp b/tests/postprojecttest.cpp
-index e5f7283e9..8a849ebc8 100644
+index 7ca2ea9f9..5625ff18f 100644
 --- a/tests/postprojecttest.cpp
 +++ b/tests/postprojecttest.cpp
-@@ -27,9 +27,15 @@ QString kdenliveHash(const QString &path)
-     return QString::fromLatin1(ProjectClip::calculateHash(path).first.toHex());
- }
- 
--// The saved form of a project with one bin clip, as Kdenlive writes it.
--QDomDocument projectScene(const QString &root, const QString &resource, const QString &hash)
-+// The saved form of a project with one bin clip, as Kdenlive writes it. With a
-+// proxy, the resource names the proxy and originalurl the clip.
-+QDomDocument projectScene(const QString &root, const QString &resource, const QString &hash, const QString &proxy = QString())
- {
-+    const QString proxyProperties = proxy.isEmpty() ? QString()
-+                                                    : QStringLiteral(R"(
-+  <property name="kdenlive:proxy">%1</property>
-+  <property name="kdenlive:originalurl">%2</property>)")
-+                                                          .arg(proxy, resource);
-     const QString xml = QStringLiteral(R"(<?xml version="1.0" encoding="utf-8"?>
- <mlt LC_NUMERIC="C" producer="main_bin" root="%1" version="7.40.0">
-  <chain id="chain0" out="100">
-@@ -38,7 +44,7 @@ QDomDocument projectScene(const QString &root, const QString &resource, const QS
-   <property name="kdenlive:id">2</property>
-   <property name="kdenlive:clipname">interview</property>
-   <property name="kdenlive:control_uuid">%3</property>
--  <property name="kdenlive:file_hash">%4</property>
-+  <property name="kdenlive:file_hash">%4</property>%5
-  </chain>
-  <playlist id="main_bin">
-   <property name="kdenlive:docproperties.documentid">1700000000000</property>
-@@ -46,7 +52,7 @@ QDomDocument projectScene(const QString &root, const QString &resource, const QS
-  </playlist>
- </mlt>
- )")
--                            .arg(root, resource, ControlUuid, hash);
-+                            .arg(root, proxy.isEmpty() ? resource : proxy, ControlUuid, hash, proxyProperties);
-     QDomDocument doc;
-     REQUIRE(doc.setContent(xml));
-     return doc;
-@@ -89,6 +95,41 @@ DocumentChecker::DocumentResource checkMissingClip(const QString &projectPath, Q
+@@ -98,6 +98,41 @@ DocumentChecker::DocumentResource checkMissingClip(const QString &projectPath, Q
      return {};
  }
  
@@ -92,8 +56,8 @@ index e5f7283e9..8a849ebc8 100644
 +
  } // namespace
  
- TEST_CASE("Relink missing clips through a PostProject sidecar", "[PostProject]")
-@@ -246,3 +287,188 @@ TEST_CASE("Relink missing clips through a PostProject sidecar", "[PostProject]")
+ TEST_CASE("PostProject save refuses a truncated representation decision", "[PostProject]")
+@@ -295,3 +330,188 @@ TEST_CASE("Relink missing clips through a PostProject sidecar", "[PostProject]")
          CHECK(item.status == DocumentChecker::MissingStatus::Missing);
      }
  }

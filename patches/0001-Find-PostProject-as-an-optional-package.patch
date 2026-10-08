@@ -1,14 +1,14 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Erich Seifert <dev@erichseifert.de>
 Date: Sun, 27 Sep 2026 14:34:33 +0200
-Subject: [PATCH 1/9] Find PostProject as an optional package
+Subject: [PATCH 01/10] Find PostProject as an optional package
 
 WITH_POSTPROJECT (default ON) looks for an installed PostProject CMake
 package and defines HAVE_POSTPROJECT when it is found. Without it, no
 pilot code is compiled.
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index c1eee7935..5e8f3c0e1 100644
+index c1eee7935..88184467b 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -170,6 +170,18 @@ set_package_properties(OpenTimelineIO PROPERTIES
