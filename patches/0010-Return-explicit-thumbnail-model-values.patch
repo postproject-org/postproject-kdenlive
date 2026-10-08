@@ -1,11 +1,124 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Erich Seifert <dev@erichseifert.de>
 Date: Thu, 1 Oct 2026 01:27:45 +0200
-Subject: [PATCH 10/10] Return explicit thumbnail model values
+Subject: [PATCH 10/10] Keep QML thumbnail values and type bindings explicit
 
 
+diff --git a/src/monitor/view/ClipMonitor.qml b/src/monitor/view/ClipMonitor.qml
+index 3ee48ff..3861b58 100644
+--- a/src/monitor/view/ClipMonitor.qml
++++ b/src/monitor/view/ClipMonitor.qml
+@@ -195,7 +195,7 @@ Item {
+         Item {
+             id: monitorOverlay
+             anchors.fill: parent
+-            AudioView {
++            K.AudioView {
+                 id: audioView
+                 monitorController: root.controller
+                 timeScale: clipMonitorRuler.timeScale
+diff --git a/src/monitor/view/MonitorAutomask.qml b/src/monitor/view/MonitorAutomask.qml
+index 00cc5b4..252ef62 100644
+--- a/src/monitor/view/MonitorAutomask.qml
++++ b/src/monitor/view/MonitorAutomask.qml
+@@ -393,7 +393,7 @@ Item {
+             onClicked: root.controller.position = root.maskEnd
+         }
+     }
+-    MaskToolBar {
++    K.MaskToolBar {
+         id: sceneToolBar
+         anchors {
+             right: parent.right
+@@ -425,7 +425,7 @@ Item {
+             visible: firstTimer.running
+         }
+     }
+-    MonitorRuler {
++    K.MonitorRuler {
+         id: clipMonitorRuler
+         anchors {
+             left: root.left
+diff --git a/src/monitor/view/MonitorRuler.qml b/src/monitor/view/MonitorRuler.qml
+index 79275b1..c0f3c62 100644
+--- a/src/monitor/view/MonitorRuler.qml
++++ b/src/monitor/view/MonitorRuler.qml
+@@ -421,7 +421,7 @@ Rectangle {
+                 Image {
+                     id: imageTooltip
+                     visible: markerTooltip.visible && root.baseThumbPath != undefined
+-                    source: imageTooltip.visible ? root.baseThumbPath + guideRoot.model.frame : ''
++                    source: imageTooltip.visible ? String(root.baseThumbPath) + guideRoot.model.frame : ''
+                     asynchronous: true
+                     height: visible ? 4 * mlabel.height : 0
+                     fillMode: Image.PreserveAspectFit
+diff --git a/src/monitor/view/MonitorSplitTracks.qml b/src/monitor/view/MonitorSplitTracks.qml
+index 6dfe6af..e569371 100644
+--- a/src/monitor/view/MonitorSplitTracks.qml
++++ b/src/monitor/view/MonitorSplitTracks.qml
+@@ -92,7 +92,7 @@ Item {
+             }
+         }
+     }
+-    MultiScreenToolBar {
++    K.MultiScreenToolBar {
+         id: sceneToolBar
+         anchors {
+             right: parent.right
+@@ -104,7 +104,7 @@ Item {
+         monitorController: root.controller
+         isClipMonitor: root.isClipMonitor
+     }
+-    MonitorRuler {
++    K.MonitorRuler {
+         id: clipMonitorRuler
+         anchors {
+             left: root.left
+diff --git a/src/monitor/view/ProjectMonitor.qml b/src/monitor/view/ProjectMonitor.qml
+index 566eeb8..4862ce8 100644
+--- a/src/monitor/view/ProjectMonitor.qml
++++ b/src/monitor/view/ProjectMonitor.qml
+@@ -102,7 +102,7 @@ Item {
+             droppedDataSource = ""
+         }
+     }
+-    SceneToolBar {
++    K.SceneToolBar {
+         id: sceneToolBar
+         anchors {
+             right: parent.right
+@@ -291,7 +291,7 @@ Item {
+             }
+         }
+     }
+-    MonitorRuler {
++    K.MonitorRuler {
+         id: clipMonitorRuler
+         anchors {
+             left: root.left
+diff --git a/src/timeline2/view/qml/AudioRecordingControls.qml b/src/timeline2/view/qml/AudioRecordingControls.qml
+index 84e675a..04bbffc 100644
+--- a/src/timeline2/view/qml/AudioRecordingControls.qml
++++ b/src/timeline2/view/qml/AudioRecordingControls.qml
+@@ -22,14 +22,14 @@ Item {
+         spacing: 12
+         anchors.fill: parent
+         
+-        AudioRecordButton {
++        K.AudioRecordButton {
+             timeline: recContainer.timeline
+             recState: recContainer.recState
+             trackId: recContainer.trackId
+             isLocked: trackHeadRoot.isLocked
+         }
+         
+-        AudioLevels {
++        K.AudioLevels {
+             Layout.fillWidth: true
+             Layout.fillHeight: true
+             Layout.rightMargin: 5
 diff --git a/src/timeline2/view/qml/ClipThumbs.qml b/src/timeline2/view/qml/ClipThumbs.qml
-index e990ec3aa..b69a3fd9c 100644
+index e990ec3..a35abd4 100644
 --- a/src/timeline2/view/qml/ClipThumbs.qml
 +++ b/src/timeline2/view/qml/ClipThumbs.qml
 @@ -30,29 +30,23 @@ Row {
@@ -55,3 +168,294 @@ index e990ec3aa..b69a3fd9c 100644
          property int startFrame: thumbRow.parentClip.inPoint
          property int endFrame: thumbRow.parentClip.outPoint
          property real imageWidth: Math.max(thumbRow.thumbWidth, parent.width / thumbRepeater.count)
+@@ -84,9 +78,9 @@ Row {
+                                  ? (index === 0 ? Image.AlignLeft : Image.AlignRight)
+                                  : Image.AlignLeft
+             source: thumbRepeater.count < 3
+-                    ? (thumbRow.parentClip.baseThumbPath + currentThumbFrame)
++                    ? (String(thumbRow.parentClip.baseThumbPath) + currentThumbFrame)
+                     : (index * width < thumbRow.parentClip.scrollStart - width || index * width > thumbRow.parentClip.scrollStart + scrollView.width)
+-                      ? '' : thumbRow.parentClip.baseThumbPath + currentThumbFrame
++                      ? '' : String(thumbRow.parentClip.baseThumbPath) + currentThumbFrame
+             onStatusChanged: {
+                 if (status === Image.Ready && (index === 0  || index === thumbRepeater.count - 1)) {
+                     thumbPlaceholder.source = source
+diff --git a/src/timeline2/view/qml/Composition.qml b/src/timeline2/view/qml/Composition.qml
+index ee20d86..97d9291 100644
+--- a/src/timeline2/view/qml/Composition.qml
++++ b/src/timeline2/view/qml/Composition.qml
+@@ -80,7 +80,7 @@ Item {
+         }
+         updateLabelOffset()
+         if (compositionRoot.width > scrollView.width) {
+-            let kfrView = effectRow.item as KeyframeView
++            let kfrView = effectRow.item as K.KeyframeView
+             if (kfrView && kfrView.kfrCanvas) {
+                 kfrView.kfrCanvas.requestPaint()
+             }
+@@ -137,7 +137,7 @@ Item {
+ 
+     function resetSelection() {
+         if (effectRow.visible) {
+-            (effectRow.item as KeyframeView).resetSelection()
++            (effectRow.item as K.KeyframeView).resetSelection()
+         }
+     }
+ 
+@@ -157,7 +157,7 @@ Item {
+         width = clipDuration * timeScale;
+         if (compositionRoot.visible) {
+             updateLabelOffset()
+-            let kfrView = effectRow.item as KeyframeView
++            let kfrView = effectRow.item as K.KeyframeView
+             if (kfrView && kfrView.kfrCanvas) {
+                 kfrView.kfrCanvas.requestPaint()
+             }
+@@ -483,7 +483,7 @@ Item {
+             active: compositionRoot.visible
+             asynchronous: true
+             visible: status == Loader.Ready && compositionRoot.showKeyframes && compositionRoot.keyframeModel && compositionRoot.width > 2 * K.UiUtils.baseSizeMedium
+-            source: compositionRoot.keyframeModel == undefined ? "" : "KeyframeView.qml"
++            source: compositionRoot.keyframeModel == undefined ? "" : "K.KeyframeView.qml"
+             Binding {
+                     target: effectRow.item
+                     property: "kfrModel"
+diff --git a/src/timeline2/view/qml/KeyframeView.qml b/src/timeline2/view/qml/KeyframeView.qml
+index 1647c4c..c867245 100644
+--- a/src/timeline2/view/qml/KeyframeView.qml
++++ b/src/timeline2/view/qml/KeyframeView.qml
+@@ -46,14 +46,14 @@ Rectangle
+ 
+     Keys.onShortcutOverride: (event) => {
+         if (event.key === Qt.Key_Left) {
+-            let kfr = keyframes.itemAt(kfrModel.activeKeyframe) as KeyframeDelegate
++            let kfr = keyframes.itemAt(kfrModel.activeKeyframe) as K.KeyframeDelegate
+             if (event.modifiers & Qt.AltModifier) {
+                 kfrModel.setActiveKeyframe(Math.max(0, --activeIndex))
+-                let activeKeyframe = keyframes.itemAt(kfrModel.activeKeyframe) as KeyframeDelegate
++                let activeKeyframe = keyframes.itemAt(kfrModel.activeKeyframe) as K.KeyframeDelegate
+                 seek(activeKeyframe.value + keyframeContainer.modelStart - keyframeContainer.inPoint)
+                 event.accepted = true
+             } else {
+-                let activeKeyframe = keyframes.itemAt(kfrModel.activeKeyframe) as KeyframeDelegate
++                let activeKeyframe = keyframes.itemAt(kfrModel.activeKeyframe) as K.KeyframeDelegate
+                 var oldFrame = activeKeyframe.value
+                 var newPos = Math.max(oldFrame - 1 - keyframeContainer.inPoint, 0)
+                 if (newPos != oldFrame) {
+@@ -65,10 +65,10 @@ Rectangle
+         else if (event.key === Qt.Key_Right) {
+             if (event.modifiers & Qt.AltModifier) {
+                 kfrModel.setActiveKeyframe(Math.min(keyframes.count - 1, ++activeIndex))
+-                let activeKeyframe = keyframes.itemAt(kfrModel.activeKeyframe) as KeyframeDelegate
++                let activeKeyframe = keyframes.itemAt(kfrModel.activeKeyframe) as K.KeyframeDelegate
+                 seek(activeKeyframe.value + keyframeContainer.modelStart - keyframeContainer.inPoint)
+             } else {
+-                let activeKeyframe = keyframes.itemAt(kfrModel.activeKeyframe) as KeyframeDelegate
++                let activeKeyframe = keyframes.itemAt(kfrModel.activeKeyframe) as K.KeyframeDelegate
+                 var oldFrame = activeKeyframe.value
+                 var newPos = Math.min(oldFrame + 1 - keyframeContainer.inPoint, keyframeContainer.outPoint - keyframeContainer.inPoint)
+                 if (newPos != oldFrame) {
+@@ -82,13 +82,13 @@ Rectangle
+             event.accepted = true
+         }
+         if ((event.key === Qt.Key_Plus) && !(event.modifiers & Qt.ControlModifier)) {
+-            let activeKeyframe = keyframes.itemAt(activeIndex) as KeyframeDelegate
++            let activeKeyframe = keyframes.itemAt(activeIndex) as K.KeyframeDelegate
+             var newVal = Math.min(activeKeyframe.value / parent.height + .05, 1)
+             kfrModel.updateKeyframe(kfrModel.activeKeyframe(), newVal)
+             event.accepted = true
+         }
+         else if ((event.key === Qt.Key_Minus) && !(event.modifiers & Qt.ControlModifier)) {
+-            let activeKeyframe = keyframes.itemAt(activeIndex) as KeyframeDelegate
++            let activeKeyframe = keyframes.itemAt(activeIndex) as K.KeyframeDelegate
+             var newVal = Math.max(activeKeyframe.value / parent.height - .05, 0)
+             kfrModel.updateKeyframe(kfrModel.activeKeyframe(), newVal)
+             event.accepted = true
+@@ -105,7 +105,7 @@ Rectangle
+         Repeater {
+             id: keyframes
+             model: keyframeContainer.kfrModel
+-            KeyframeDelegate {
++            K.KeyframeDelegate {
+                 timeScale: root.timeScale
+             }
+         }
+@@ -152,7 +152,7 @@ Rectangle
+             ctx.fillStyle = Qt.rgba(0,0,0.8, 0.5);
+             paths = []
+ 
+-            var firstKeyframe = keyframes.itemAt(0) as KeyframeDelegate
++            var firstKeyframe = keyframes.itemAt(0) as K.KeyframeDelegate
+             var xpos = firstKeyframe.tmpPos - offset
+             var ypos = firstKeyframe.tmpVal
+             // Add first curve point
+@@ -160,9 +160,9 @@ Rectangle
+ 
+             for(var i = 1; i < keyframes.count; i++)
+             {
+-                var previousKeyframe = keyframes.itemAt(i - 1) as KeyframeDelegate
+-                var currentKeyframe = keyframes.itemAt(i) as KeyframeDelegate
+-                var nextKeyframe = keyframes.itemAt(i + 1) as KeyframeDelegate
++                var previousKeyframe = keyframes.itemAt(i - 1) as K.KeyframeDelegate
++                var currentKeyframe = keyframes.itemAt(i) as K.KeyframeDelegate
++                var nextKeyframe = keyframes.itemAt(i + 1) as K.KeyframeDelegate
+                 if (i + 1 < keyframes.count) {
+                     if (nextKeyframe.tmpPos < offset) {
+                         continue;
+@@ -217,7 +217,7 @@ Rectangle
+                             paths.push(quad.createObject(keyframecanvas, {"x": xpos, "y": ypos, "controlX": nextxpos, "controlY": nextypos} ))
+                             break;
+                         } else {
+-                            let beforePreviousKeframe = keyframes.itemAt(i - 2) as KeyframeDelegate
++                            let beforePreviousKeframe = keyframes.itemAt(i - 2) as K.KeyframeDelegate
+                             prevXOffset = (currentKeyframe.tmpPos - beforePreviousKeframe.tmpPos) / 6
+                             prevYOffset = (currentKeyframe.tmpVal - beforePreviousKeframe.tmpVal) / 6
+                         }
+diff --git a/src/timeline2/view/qml/Ruler.qml b/src/timeline2/view/qml/Ruler.qml
+index cc7773e..11dea2f 100644
+--- a/src/timeline2/view/qml/Ruler.qml
++++ b/src/timeline2/view/qml/Ruler.qml
+@@ -621,7 +621,7 @@ Item {
+         }
+     }
+     
+-    RulerZone {
++    K.RulerZone {
+         id: zone
+         z: 3
+         timeline: rulerRoot.timeline
+@@ -660,7 +660,7 @@ Item {
+     }
+ 
+     // Effect zone
+-    RulerZone {
++    K.RulerZone {
+         id: effectZone
+         z: 2
+         timeline: rulerRoot.timeline
+diff --git a/src/timeline2/view/qml/Timeline.qml b/src/timeline2/view/qml/Timeline.qml
+index 1eb07d3..2eb427d 100644
+--- a/src/timeline2/view/qml/Timeline.qml
++++ b/src/timeline2/view/qml/Timeline.qml
+@@ -222,7 +222,7 @@ Rectangle {
+             }
+             newTrack = 0;
+         }
+-        root.timeline.activeTrack = (tracksRepeater.itemAt(newTrack) as Track).trackInternalId
++        root.timeline.activeTrack = (tracksRepeater.itemAt(newTrack) as K.Track).trackInternalId
+     }
+ 
+     function zoomByWheel(wheel) {
+@@ -874,7 +874,7 @@ function getTrackColor(audio, header) {
+                 }
+                 var track = Logic.getTrackIndexFromPos(drag.y + voffset + scrollView.contentY - yOffset)
+                 if (track >= 0  && track < tracksRepeater.count) {
+-                    var targetTrack = (tracksRepeater.itemAt(track) as Track).trackInternalId
++                    var targetTrack = (tracksRepeater.itemAt(track) as K.Track).trackInternalId
+                     var frame = Math.floor((drag.x + scrollView.contentX + offset) / root.timeScale)
+                     // If the target track changed, recreate the preview clips so that audio mirrors
+                     // are correctly assigned for the new target track (e.g. when the new track has
+@@ -1003,7 +1003,7 @@ function getTrackColor(audio, header) {
+                 if (track >= 0  && track < tracksRepeater.count) {
+                     var frame = Math.round((drag.x + scrollView.contentX) / root.timeScale)
+                     root.droppedPosition = frame
+-                    root.timeline.activeTrack = (tracksRepeater.itemAt(track) as Track).trackInternalId
++                    root.timeline.activeTrack = (tracksRepeater.itemAt(track) as K.Track).trackInternalId
+                     root.lastDropTrack = root.timeline.activeTrack
+                     if (root.controller.normalEdit()) {
+                         root.clipBeingDroppedId = insertAndMaybeGroup(root.timeline.activeTrack, frame, root.clipBeingDroppedData)
+@@ -1072,7 +1072,7 @@ function getTrackColor(audio, header) {
+                     }
+                     var track = Logic.getTrackIndexFromPos(drag.y + scrollView.contentY - yOffset)
+                     if (track >= 0  && track < tracksRepeater.count) {
+-                        var targetTrack = (tracksRepeater.itemAt(track) as Track).trackInternalId
++                        var targetTrack = (tracksRepeater.itemAt(track) as K.Track).trackInternalId
+                         frame = root.controller.suggestSnapPoint(frame, root.snapping)
+                         if (lastCheckedFrame != frame || root.timeline.activeTrack != targetTrack) {
+                             root.timeline.activeTrack = targetTrack
+@@ -1152,7 +1152,7 @@ function getTrackColor(audio, header) {
+                 }
+                 var track = Logic.getTrackIndexFromPos(drag.y + scrollView.contentY - yOffset)
+                 if (track >= 0  && track < tracksRepeater.count) {
+-                    root.timeline.activeTrack = (tracksRepeater.itemAt(track) as Track).trackInternalId
++                    root.timeline.activeTrack = (tracksRepeater.itemAt(track) as K.Track).trackInternalId
+                     root.continuousScrolling(drag.x + scrollView.contentX, drag.y + scrollView.contentY)
+                 }
+             }
+@@ -1413,7 +1413,7 @@ function getTrackColor(audio, header) {
+                         // razor tool
+                         var y = mouse.y - ruler.height + scrollView.contentY - subtitleTrack.height
+                         if (y >= 0) {
+-                            let track = tracksRepeater.itemAt(Logic.getTrackIndexFromPos(y)) as Track
++                            let track = tracksRepeater.itemAt(Logic.getTrackIndexFromPos(y)) as K.Track
+                             root.timeline.cutClipUnderCursor((scrollView.contentX + mouse.x) / root.timeScale, track.trackInternalId)
+                         } else if (subtitleTrack.height > 0) {
+                             root.timeline.cutClipUnderCursor((scrollView.contentX + mouse.x) / root.timeScale, -2)
+@@ -1454,11 +1454,11 @@ function getTrackColor(audio, header) {
+                                     // Activate spacer on subtitle track only
+                                     root.spacerTrack = -2
+                                 } else {
+-                                    let track = tracksRepeater.itemAt(Logic.getTrackIndexFromPos(y - subtitleTrack.height)) as Track
++                                    let track = tracksRepeater.itemAt(Logic.getTrackIndexFromPos(y - subtitleTrack.height)) as K.Track
+                                     root.spacerTrack = track.trackInternalId
+                                 }
+                             } else {
+-                                let track = tracksRepeater.itemAt(Logic.getTrackIndexFromPos(y)) as Track
++                                let track = tracksRepeater.itemAt(Logic.getTrackIndexFromPos(y)) as K.Track
+                                 root.spacerTrack = track.trackInternalId
+                             }
+                         }
+@@ -1502,7 +1502,7 @@ function getTrackColor(audio, header) {
+                     if (mouse.y > ruler.height) {
+                         if (mouse.y > ruler.height + subtitleTrack.height) {
+                             let trackPos = mouse.y - ruler.height + scrollView.contentY - subtitleTrack.height
+-                            let track = tracksRepeater.itemAt(Logic.getTrackIndexFromPos(trackPos)) as Track
++                            let track = tracksRepeater.itemAt(Logic.getTrackIndexFromPos(trackPos)) as K.Track
+                             root.timeline.activeTrack = track.trackInternalId
+                         } else {
+                             root.timeline.activeTrack = -2
+@@ -1537,7 +1537,7 @@ function getTrackColor(audio, header) {
+                         root.timeline.activeSubLayer = (mouse.y - ruler.height) / (subtitleTrack.height / (root.maxSubLayer + 1))
+                     } else {
+                         let trackPos = mouse.y - ruler.height + scrollView.contentY - subtitleTrack.height
+-                        let track = tracksRepeater.itemAt(Logic.getTrackIndexFromPos(trackPos)) as Track
++                        let track = tracksRepeater.itemAt(Logic.getTrackIndexFromPos(trackPos)) as K.Track
+                         root.timeline.activeTrack = track.trackInternalId
+                     }
+                 } else if (mouse.y < ruler.guideLabelHeight) {
+@@ -1714,7 +1714,7 @@ function getTrackColor(audio, header) {
+                     }
+                     var topTrackIx = Logic.getTrackIndexFromPos(Math.max(0, y))
+                     var bottomTrackIx = Logic.getTrackIndexFromPos(Math.max(0, y) + selectionHeight)
+-                    var bottomTrack = tracksRepeater.itemAt(bottomTrackIx) as Track
++                    var bottomTrack = tracksRepeater.itemAt(bottomTrackIx) as K.Track
+                     // Check if bottom of rubber selection covers the last track compositions
+                     console.log('Got rubber bottom: ', y, ' - height: ', selectionHeight, ', TK y: ', Logic.getTrackYFromId(bottomTrack.trackInternalId), ', SCROLLVIEWY: ', scrollView.contentY)
+                     var selectBottomCompositions = ((y + selectionHeight) - Logic.getTrackYFromId(bottomTrack.trackInternalId)) > (Logic.getTrackHeightByPos(bottomTrackIx) * 0.6)
+@@ -1722,7 +1722,7 @@ function getTrackColor(audio, header) {
+                         var t = []
+                         if (!selectOnlySubs) {
+                             for (var i = topTrackIx; i <= bottomTrackIx; i++) {
+-                                t.push((tracksRepeater.itemAt(i) as Track).trackInternalId)
++                                t.push((tracksRepeater.itemAt(i) as K.Track).trackInternalId)
+                             }
+                         }
+                         var startFrame = Math.round(rubberSelect.x / root.timeScale)
+@@ -1862,7 +1862,7 @@ function getTrackColor(audio, header) {
+                     clip: true
+                     // These make the striped background for the tracks.
+                     // It is important that these are not part of the track visual hierarchy;
+-                    // otherwise, the clips will be obscured by the Track's background.
++                    // otherwise, the clips will be obscured by the K.Track's background.
+                     Column {
+                         topPadding: -scrollView.contentY
+                         Repeater {
+@@ -2475,7 +2475,7 @@ function getTrackColor(audio, header) {
+     DelegateModel {
+         id: trackDelegateModel
+         model: root.multitrack
+-        delegate: Track {
++        delegate: K.Track {
+             required property int index
+             required property var model
+             trackModel: root.multitrack
