@@ -40,15 +40,16 @@ index 00cc5b4..252ef62 100644
          anchors {
              left: root.left
 diff --git a/src/monitor/view/MonitorRuler.qml b/src/monitor/view/MonitorRuler.qml
-index 79275b1..c0f3c62 100644
+index 79275b1..ff8072a 100644
 --- a/src/monitor/view/MonitorRuler.qml
 +++ b/src/monitor/view/MonitorRuler.qml
-@@ -421,7 +421,7 @@ Rectangle {
+@@ -421,7 +421,8 @@ Rectangle {
                  Image {
                      id: imageTooltip
                      visible: markerTooltip.visible && root.baseThumbPath != undefined
 -                    source: imageTooltip.visible ? root.baseThumbPath + guideRoot.model.frame : ''
-+                    source: imageTooltip.visible ? String(root.baseThumbPath) + guideRoot.model.frame : ''
++                    property string thumbnailUrl: imageTooltip.visible ? String(root.baseThumbPath) + guideRoot.model.frame : ''
++                    source: thumbnailUrl
                      asynchronous: true
                      height: visible ? 4 * mlabel.height : 0
                      fillMode: Image.PreserveAspectFit
@@ -118,7 +119,7 @@ index 84e675a..04bbffc 100644
              Layout.fillHeight: true
              Layout.rightMargin: 5
 diff --git a/src/timeline2/view/qml/ClipThumbs.qml b/src/timeline2/view/qml/ClipThumbs.qml
-index e990ec3..a35abd4 100644
+index e990ec3..6ff2899 100644
 --- a/src/timeline2/view/qml/ClipThumbs.qml
 +++ b/src/timeline2/view/qml/ClipThumbs.qml
 @@ -30,29 +30,23 @@ Row {
@@ -168,15 +169,18 @@ index e990ec3..a35abd4 100644
          property int startFrame: thumbRow.parentClip.inPoint
          property int endFrame: thumbRow.parentClip.outPoint
          property real imageWidth: Math.max(thumbRow.thumbWidth, parent.width / thumbRepeater.count)
-@@ -84,9 +78,9 @@ Row {
+@@ -83,10 +77,11 @@ Row {
+             horizontalAlignment: thumbRepeater.count < 3
                                   ? (index === 0 ? Image.AlignLeft : Image.AlignRight)
                                   : Image.AlignLeft
-             source: thumbRepeater.count < 3
+-            source: thumbRepeater.count < 3
 -                    ? (thumbRow.parentClip.baseThumbPath + currentThumbFrame)
++            property string thumbnailUrl: thumbRepeater.count < 3
 +                    ? (String(thumbRow.parentClip.baseThumbPath) + currentThumbFrame)
                      : (index * width < thumbRow.parentClip.scrollStart - width || index * width > thumbRow.parentClip.scrollStart + scrollView.width)
 -                      ? '' : thumbRow.parentClip.baseThumbPath + currentThumbFrame
 +                      ? '' : String(thumbRow.parentClip.baseThumbPath) + currentThumbFrame
++            source: thumbnailUrl
              onStatusChanged: {
                  if (status === Image.Ready && (index === 0  || index === thumbRepeater.count - 1)) {
                      thumbPlaceholder.source = source
