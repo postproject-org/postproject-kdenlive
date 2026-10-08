@@ -17,3 +17,4 @@
 0017-Use-point-reads-after-the-representation-convenience-bound.patch
 0018-Inspect-validated-representation-content.patch
 0019-Inspect-checked-resolution-outcomes.patch
+0020-fix-Return-explicit-thumbnail-model-values.patch

@@ -69,6 +69,7 @@ The patches in `patches/` are:
 | `0017` | Inspect the original by identity after the convenience bound |
 | `0018` | Inspect the checked representation content value |
 | `0019` | Inspect state and candidates from the checked resolution outcome |
+| `0020` | Return thumbnail counts explicitly for Qt 6.12 QML linting |
 
 ## Build
 
