@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     # The pinned Kdenlive needs KF6 >= 6.21 and Qt >= 6.10, newer than any
     # Ubuntu runner image provides.
-    container: archlinux:latest
+    container: ghcr.io/archlinux/archlinux:latest
     strategy:
       fail-fast: false
       matrix:
