@@ -65,12 +65,12 @@ The patches in `patches/` are:
 
 You need Kdenlive's usual build dependencies (KF6 ≥ 6.21, Qt ≥ 6.10,
 MLT ≥ 7.38, KDDockWidgets ≥ 2.4, OpenTimelineIO, FFmpeg), CMake, and Ninja,
-plus an installed PostProject 0.8 development package. Kdenlive links PostProject only through
+plus an installed PostProject 0.8 package. Kdenlive links PostProject only through
 `find_package(PostProject)`. Cargo is needed only to build PostProject itself:
 
 Resolution option factories and setters now propagate failures immediately
 through the existing Result protocol. The build-disabled fallback remains
-available; final candidate host qualification is pending.
+available.
 Each save phase reads identifiers and representations through a coherent view
 and creates its edit from that view. Concurrent conflicting changes require a
 fresh decision; there is no automatic retry.
