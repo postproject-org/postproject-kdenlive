@@ -74,7 +74,7 @@ new file mode 100644
 index 000000000..6038040b7
 --- /dev/null
 +++ b/src/doc/postprojectsidecar.cpp
-@@ -0,0 +1,397 @@
+@@ -0,0 +1,398 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 Erich Seifert <dev@erichseifert.de>
 +
@@ -401,11 +401,12 @@ index 000000000..6038040b7
 +        clipFor[{asset.id.bytes(), representation->id.bytes()}] = controlUuid;
 +    }
 +
-+    POSTPROJECT_TRY_ASSIGN(auto options, pp::ResolutionOptions::create());
-+    POSTPROJECT_TRY(options.addSearchDirectory(utf8(projectFolder)));
++    pp::ResolutionConfig config;
++    config.search_directories = {utf8(projectFolder)};
 +    for (const QString &folder : folders) {
-+        POSTPROJECT_TRY(options.addSearchDirectory(utf8(folder)));
++        config.search_directories.emplace_back(utf8(folder));
 +    }
++    POSTPROJECT_TRY_ASSIGN(auto options, pp::ResolutionOptions::create(config));
 +    // Every clip is resolved together, so each folder is scanned only once.
 +    POSTPROJECT_TRY_ASSIGN(const std::vector<pp::RepresentationResolution> resolutions, view.resolveAssets(assetIds, options));
 +    QHash<QString, QString> paths;
