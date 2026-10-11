@@ -95,11 +95,15 @@ jobs:
           uv pip install --python "$manager_venv/bin/python" \
             --override "$RUNNER_TEMP/postproject-override.txt" \
             ./postproject/python ./postproject-openassetio-manager
+          set -- postproject-blender/dist/postproject_relink-*-linux_x64.zip
+          test "$#" -eq 1
+          test -f "$1"
+          blender_package=$1
           POSTPROJECT_ABI_TRACE_DIRECTORY="$PWD/evidence/shared-production" \
             tools/shared-production.sh \
             build \
             postproject-blender/blender/blender \
-            postproject-blender/dist/postproject_relink-0.1.0-linux_x64.zip \
+            "$blender_package" \
             postproject-blender \
             "$manager_venv/bin/python" \
             postproject-openassetio-manager \
