@@ -1,7 +1,7 @@
 # Optional relink proposal
 
 **Discussion draft; not submitted or endorsed by KDE.** The tested pilot uses
-Kdenlive 26.08.1 (`55e16e85`) with the SDK 0.9/ABI 53. Its complete builds pass
+Kdenlive 26.08.2 (`ef543982`) with the SDK 0.9/ABI 53. Its complete builds pass
 with and without PostProject; the document checker and relink tests pass.
 
 ## Initial user journey and scope

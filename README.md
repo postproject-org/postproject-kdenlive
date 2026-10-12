@@ -17,8 +17,9 @@ pilot taught PostProject is recorded in PostProject's
 This is not a KDE project, and nothing here has been proposed to or reviewed by
 the Kdenlive maintainers.
 
-The current target is Kdenlive 26.08.2. Its patch application passes; build
-qualification is in progress. The earlier 26.08.1 qualification is retained.
+The current target is Kdenlive 26.08.2. All ten patches, complete Linux builds
+with/without SDK 0.9, document/pilot tests and the Blender/Manager handoff pass.
+The earlier 26.08.1 qualification is retained.
 
 ## What changes
 

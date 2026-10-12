@@ -3,9 +3,10 @@
 The current target is `v26.08.2`, commit
 `ef54398259f2af1d29095a798cab48ca4c52f141`, released on 2026-10-08 in
 [KDE Gear 26.08.2](https://kde.org/info/releases-26.08.2/). The ten patches
-apply; the proxy wait hooks follow its member-owned `QProcess`. Build and host
-qualification are in progress. The source review below retains its original
-26.08.1 line references.
+apply; the proxy wait hooks follow its member-owned `QProcess`. Complete Linux
+builds pass with and without SDK 0.9/ABI 53, along with two enabled/one disabled
+test suites and the Kdenlive → Blender → Manager handoff. The source review
+below retains its original 26.08.1 line references.
 
 Checked on 2026-09-27 against Kdenlive tag `v26.08.1`, commit
 `55e16e85cd9a9c6e032cd27a621137b4da881a7c` (committed 2026-09-08). That tag is
