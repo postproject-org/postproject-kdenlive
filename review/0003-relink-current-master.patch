@@ -1,0 +1,97 @@
+diff --git a/src/doc/documentchecker.cpp b/src/doc/documentchecker.cpp
+index c71d896..492a09f 100644
+--- a/src/doc/documentchecker.cpp
++++ b/src/doc/documentchecker.cpp
+@@ -12,6 +12,10 @@
+ #include "titler/titlewidget.h"
+ #include "transitions/transitionsrepository.hpp"
+ #include "xml/xml.hpp"
++#include <config-kdenlive.h>
++#ifdef HAVE_POSTPROJECT
++#include "postprojectsidecar.h"
++#endif
+ 
+ #include <KLocalizedString>
+ #include <KMessageBox>
+@@ -55,6 +59,23 @@ static bool isPlatformRelative(QString filePath, bool *platformChange)
+     return true;
+ }
+ 
++#ifdef HAVE_POSTPROJECT
++// Asks the project's PostProject sidecar where a missing clip went. The first
++// question resolves every recorded clip at once. The answer is used only when
++// Kdenlive's own hash of that file agrees with the stored one.
++QString DocumentChecker::locateWithPostProject(const QDomElement &producer, const QString &hash)
++{
++    if (!m_postProject) {
++        m_postProject = std::make_shared<PostProjectSidecar::ClipLocator>(m_url.toLocalFile());
++    }
++    const QString located = m_postProject->locate(Xml::getXmlProperty(producer, QStringLiteral("kdenlive:control_uuid")));
++    if (located.isEmpty() || (!hash.isEmpty() && ProjectClip::calculateHash(located).first.toHex() != hash.toLatin1())) {
++        return QString();
++    }
++    return located;
++}
++#endif
++
+ DocumentChecker::DocumentChecker(QUrl url, const QDomDocument &doc)
+     : m_url(std::move(url))
+     , m_doc(doc)
+@@ -1083,6 +1104,15 @@ QString DocumentChecker::getMissingProducers(QDomElement &e, const QDomNodeList
+                 item.newFilePath = relocated;
+                 item.status = MissingStatus::Fixed;
+             }
++#ifdef HAVE_POSTPROJECT
++            if (item.status == MissingStatus::Missing && clipType != ClipType::SlideShow) {
++                const QString located = locateWithPostProject(e, item.hash);
++                if (!located.isEmpty()) {
++                    item.newFilePath = located;
++                    item.status = MissingStatus::Fixed;
++                }
++            }
++#endif
+             m_items.push_back(item);
+         }
+     };
+@@ -1166,6 +1196,15 @@ QString DocumentChecker::getMissingProducers(QDomElement &e, const QDomNodeList
+                 item.hash = Xml::getXmlProperty(e, QStringLiteral("kdenlive:file_hash"));
+                 item.fileSize = Xml::getXmlProperty(e, QStringLiteral("kdenlive:file_size"));
+                 // item.mltService = Xml::getXmlProperty(e, QStringLiteral("mlt_service"));
++#ifdef HAVE_POSTPROJECT
++                if (!slideshow) {
++                    const QString located = locateWithPostProject(e, item.hash);
++                    if (!located.isEmpty()) {
++                        item.newFilePath = located;
++                        item.status = MissingStatus::Fixed;
++                    }
++                }
++#endif
+             }
+             m_items.push_back(item);
+         } else if (!proxyFound) {
+diff --git a/src/doc/documentchecker.h b/src/doc/documentchecker.h
+index 7562fbb..5952e3d 100644
+--- a/src/doc/documentchecker.h
++++ b/src/doc/documentchecker.h
+@@ -13,6 +13,12 @@
+ #include <QDomElement>
+ #include <QUrl>
+ 
++#include <memory>
++
++namespace PostProjectSidecar {
++class ClipLocator;
++}
++
+ class DocumentChecker : public QObject
+ {
+     Q_OBJECT
+@@ -74,6 +80,8 @@ private:
+     QString m_documentid;
+     QString m_root;
+     QPair<QString, QString> m_rootReplacement;
++    std::shared_ptr<PostProjectSidecar::ClipLocator> m_postProject;
++    QString locateWithPostProject(const QDomElement &producer, const QString &hash);
+     QString m_lastSavePath;
+ 
+     QDomNodeList m_binEntries;
