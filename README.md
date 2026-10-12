@@ -111,6 +111,9 @@ for the KDE 6.10 SDK that Kdenlive's manifest uses.
 
 ## Working on the patches
 
+The [optional relink proposal](ADOPTION.md) separates the first review slice
+from the larger pilot and records the current upstream venue and branch check.
+
 `tools/checkout.sh` turns `./kdenlive` into a normal Git tree. Its branch
 `postproject-pilot` holds one commit per patch on top of the pinned release.
 Edit, commit, or rebase there, then run `tools/export.sh` to regenerate
