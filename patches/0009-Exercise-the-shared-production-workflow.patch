@@ -110,7 +110,7 @@ index 298a02bee..8ce696ece 100644
 +        REQUIRE(QFile::copy(movedPath, choice));
 +        auto transaction = production.edit(base).value();
 +        REQUIRE(transaction
-+                    .setRevisionContext({postproject::OriginIdentity{"Kdenlive", std::string("26.08.1"), std::nullopt}, std::string("Confirm source location")})
++                    .setRevisionContext({postproject::OriginIdentity{"Kdenlive", std::string("26.08.2"), std::nullopt}, std::string("Confirm source location")})
 +                    .has_value());
 +        REQUIRE(transaction.confirmLocator(original->resources.front().id, postproject::fileLocator(choice.toStdString()).value()).has_value());
 +        const auto committed = transaction.commit();

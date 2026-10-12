@@ -16,7 +16,7 @@ project saved for the first time, are recorded on save when their name
 carries the clip's present Kdenlive hash.
 
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
-index 6038040b7..fbc4d6f47 100644
+index 2501c56..adc8a62 100644
 --- a/src/doc/postprojectsidecar.cpp
 +++ b/src/doc/postprojectsidecar.cpp
 @@ -11,10 +11,13 @@
@@ -160,7 +160,7 @@ index 6038040b7..fbc4d6f47 100644
          POSTPROJECT_TRY_ASSIGN(pp::ReadSession view, production.readSession());
          POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, view.edit());
          POSTPROJECT_TRY(transaction.setRevisionContext(context));
-@@ -347,8 +425,35 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
+@@ -348,8 +426,35 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
      return paths;
  }
  
@@ -196,7 +196,7 @@ index 6038040b7..fbc4d6f47 100644
  QString PostProjectSidecar::sidecarPath(const QString &projectPath)
  {
      const QFileInfo project(projectPath);
-@@ -395,3 +500,161 @@ void PostProjectSidecar::ClipLocator::resolveAll()
+@@ -396,3 +501,161 @@ void PostProjectSidecar::ClipLocator::resolveAll()
      }
      m_located = *std::move(located);
  }
@@ -359,7 +359,7 @@ index 6038040b7..fbc4d6f47 100644
 +    }
 +}
 diff --git a/src/doc/postprojectsidecar.h b/src/doc/postprojectsidecar.h
-index 5bc63d8de..ebae6ee73 100644
+index 5bc63d8..ebae6ee 100644
 --- a/src/doc/postprojectsidecar.h
 +++ b/src/doc/postprojectsidecar.h
 @@ -48,6 +48,40 @@ QString sidecarPath(const QString &projectPath);
@@ -404,7 +404,7 @@ index 5bc63d8de..ebae6ee73 100644
   * @brief Locates missing bin clips of one opened project by content.
   *
 diff --git a/src/jobs/proxytask.cpp b/src/jobs/proxytask.cpp
-index 1f2344197..078ce57c9 100644
+index 477a336..4d07a64 100644
 --- a/src/jobs/proxytask.cpp
 +++ b/src/jobs/proxytask.cpp
 @@ -12,6 +12,10 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
@@ -433,19 +433,19 @@ index 1f2344197..078ce57c9 100644
      if (type == ClipType::Playlist || type == ClipType::SlideShow) {
          // change FFmpeg params to MLT format
 @@ -202,7 +213,13 @@ void ProxyTask::run()
-         QObject::connect(&jobProcess, &QProcess::readyReadStandardError, this, &ProxyTask::processLogInfo);
-         jobProcess.start(KdenliveSettings::meltpath(), mltParameters);
-         AbstractTask::setPreferredPriority(jobProcess.processId());
+         QObject::connect(m_jobProcess, &QProcess::readyReadStandardError, this, &ProxyTask::processLogInfo);
+         m_jobProcess->start(KdenliveSettings::meltpath(), mltParameters);
+         AbstractTask::setPreferredPriority(m_jobProcess->processId());
 +#ifdef HAVE_POSTPROJECT
 +        renderTool = KdenliveSettings::meltpath();
 +        renderArguments = mltParameters;
-+        postProject.waitForFinished(jobProcess);
++        postProject.waitForFinished(*m_jobProcess);
 +#else
-         jobProcess.waitForFinished(-1);
+         m_jobProcess->waitForFinished(-1);
 +#endif
-         result = jobProcess.exitStatus() == QProcess::NormalExit;
-         QObject::disconnect(&jobProcess, &QProcess::readyReadStandardError, this, nullptr);
+         result = m_jobProcess->exitStatus() == QProcess::NormalExit;
          if (!result && !m_isCanceled) {
+             m_logDetails.append(QString::fromUtf8(m_jobProcess->readAllStandardError()));
 @@ -235,6 +252,10 @@ void ProxyTask::run()
              }
              proxy.save(dest);
@@ -458,19 +458,19 @@ index 1f2344197..078ce57c9 100644
              // Image is too small to be proxied
              m_logDetails = i18n("Image too small to be proxied.");
 @@ -416,7 +437,13 @@ void ProxyTask::run()
-         QObject::connect(this, &ProxyTask::jobCanceled, &jobProcess, &QProcess::kill, Qt::DirectConnection);
-         jobProcess.start(KdenliveSettings::ffmpegpath(), parameters, QIODevice::ReadOnly);
-         AbstractTask::setPreferredPriority(jobProcess.processId());
+         QObject::connect(this, &ProxyTask::jobCanceled, m_jobProcess, &QProcess::kill, Qt::DirectConnection);
+         m_jobProcess->start(KdenliveSettings::ffmpegpath(), parameters, QIODevice::ReadOnly);
+         AbstractTask::setPreferredPriority(m_jobProcess->processId());
 +#ifdef HAVE_POSTPROJECT
 +        renderTool = KdenliveSettings::ffmpegpath();
 +        renderArguments = parameters;
-+        postProject.waitForFinished(jobProcess);
++        postProject.waitForFinished(*m_jobProcess);
 +#else
-         jobProcess.waitForFinished(-1);
+         m_jobProcess->waitForFinished(-1);
 +#endif
-         result = jobProcess.exitStatus() == QProcess::NormalExit && jobProcess.exitCode() == 0;
-         QObject::disconnect(&jobProcess, &QProcess::readyReadStandardError, this, nullptr);
+         result = m_jobProcess->exitStatus() == QProcess::NormalExit && m_jobProcess->exitCode() == 0;
          if (!result && !m_isCanceled) {
+             m_logDetails.append(QString::fromUtf8(m_jobProcess->readAllStandardError()));
 @@ -430,6 +457,9 @@ void ProxyTask::run()
              QFile::remove(dest);
              // File was not created
