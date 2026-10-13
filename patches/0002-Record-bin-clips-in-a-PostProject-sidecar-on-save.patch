@@ -15,7 +15,7 @@ The PostProject C++ wrapper returns results instead of throwing, so the
 adapter builds with Kdenlive's default -fno-exceptions.
 
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index f3e38d98a..4b679142c 100644
+index 31d77ec76..664870728 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
 @@ -303,6 +303,10 @@ target_link_libraries(kdenliveLib PUBLIC KDAB::kddockwidgets)
@@ -71,7 +71,7 @@ index fa23b1019..4eec86075 100644
      const QString timeStamp = info.lastModified().toString(QStringLiteral("yyyy-MM-dd-hh-mm"));
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
 new file mode 100644
-index 000000000..6038040b7
+index 000000000..f092eb561
 --- /dev/null
 +++ b/src/doc/postprojectsidecar.cpp
 @@ -0,0 +1,398 @@
@@ -278,9 +278,9 @@ index 000000000..6038040b7
 +    for (const BinClip &clip : clips) {
 +        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::AssetId> assetId, findClipAsset(production, clip.controlUuid));
 +        if (!assetId) {
-+            POSTPROJECT_TRY_ASSIGN(const pp::AssetId imported, transaction.importMedia(utf8(clip.path), utf8(clip.name)));
++            POSTPROJECT_TRY_ASSIGN(const pp::ImportedMedia imported, transaction.importMedia(utf8(clip.path), utf8(clip.name)));
 +            POSTPROJECT_TRY(
-+                transaction.addExternalIdentifier(pp::ObjectRef::asset(imported), {IdentifierScheme, clip.controlUuid, std::string(IdentifierQualifier)}));
++                transaction.addExternalIdentifier(pp::ObjectRef::asset(imported.asset_id), {IdentifierScheme, clip.controlUuid, std::string(IdentifierQualifier)}));
 +            changed = true;
 +            continue;
 +        }

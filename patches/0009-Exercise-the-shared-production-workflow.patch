@@ -5,7 +5,7 @@ Subject: [PATCH 09/10] Exercise the shared production workflow
 
 
 diff --git a/tests/postprojecttest.cpp b/tests/postprojecttest.cpp
-index 298a02bee..8ce696ece 100644
+index 298a02bee..ed713b166 100644
 --- a/tests/postprojecttest.cpp
 +++ b/tests/postprojecttest.cpp
 @@ -344,6 +344,145 @@ TEST_CASE("Select an explicit shared PostProject production", "[PostProject]")

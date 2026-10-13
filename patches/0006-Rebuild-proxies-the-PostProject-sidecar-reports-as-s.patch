@@ -13,10 +13,10 @@ rebuilding in the relink dialog. The clip is hashed again, so the new
 proxy gets a name of its own.
 
 diff --git a/src/doc/documentchecker.cpp b/src/doc/documentchecker.cpp
-index 956ffc16b..3dfccb7d2 100644
+index 4732f9ce6..01bff3f68 100644
 --- a/src/doc/documentchecker.cpp
 +++ b/src/doc/documentchecker.cpp
-@@ -1115,6 +1115,17 @@ QString DocumentChecker::getMissingProducers(QDomElement &e, const QDomNodeList
+@@ -1126,6 +1126,17 @@ QString DocumentChecker::getMissingProducers(QDomElement &e, const QDomNodeList
              item.originalFilePath = proxy;
              item.type = MissingType::Proxy;
              m_items.push_back(item);
@@ -35,10 +35,10 @@ index 956ffc16b..3dfccb7d2 100644
          return resource;
      }
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
-index fbc4d6f47..225ad08f8 100644
+index 3be2a9fff..27080bf13 100644
 --- a/src/doc/postprojectsidecar.cpp
 +++ b/src/doc/postprojectsidecar.cpp
-@@ -425,6 +425,35 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
+@@ -426,6 +426,35 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
      return paths;
  }
  
@@ -74,7 +74,7 @@ index fbc4d6f47..225ad08f8 100644
  // The end of a render log, within PostProject's bound for a failure diagnostic.
  std::string failureDiagnostic(const QString &log)
  {
-@@ -501,6 +530,20 @@ void PostProjectSidecar::ClipLocator::resolveAll()
+@@ -502,6 +531,20 @@ void PostProjectSidecar::ClipLocator::resolveAll()
      m_located = *std::move(located);
  }
  

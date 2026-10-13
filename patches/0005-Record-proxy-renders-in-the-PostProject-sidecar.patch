@@ -16,7 +16,7 @@ project saved for the first time, are recorded on save when their name
 carries the clip's present Kdenlive hash.
 
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
-index 2501c56..adc8a62 100644
+index f092eb561..3be2a9fff 100644
 --- a/src/doc/postprojectsidecar.cpp
 +++ b/src/doc/postprojectsidecar.cpp
 @@ -11,10 +11,13 @@
@@ -359,7 +359,7 @@ index 2501c56..adc8a62 100644
 +    }
 +}
 diff --git a/src/doc/postprojectsidecar.h b/src/doc/postprojectsidecar.h
-index 5bc63d8..ebae6ee 100644
+index 5bc63d8de..ebae6ee73 100644
 --- a/src/doc/postprojectsidecar.h
 +++ b/src/doc/postprojectsidecar.h
 @@ -48,6 +48,40 @@ QString sidecarPath(const QString &projectPath);
@@ -404,7 +404,7 @@ index 5bc63d8..ebae6ee 100644
   * @brief Locates missing bin clips of one opened project by content.
   *
 diff --git a/src/jobs/proxytask.cpp b/src/jobs/proxytask.cpp
-index 477a336..4d07a64 100644
+index 477a336fa..4d07a64cf 100644
 --- a/src/jobs/proxytask.cpp
 +++ b/src/jobs/proxytask.cpp
 @@ -12,6 +12,10 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL

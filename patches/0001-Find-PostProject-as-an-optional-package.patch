@@ -8,10 +8,10 @@ package and defines HAVE_POSTPROJECT when it is found. Without it, no
 pilot code is compiled.
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index c1eee7935..88184467b 100644
+index 93482e259..855d3661b 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -170,6 +170,18 @@ set_package_properties(OpenTimelineIO PROPERTIES
+@@ -171,6 +171,18 @@ set_package_properties(OpenTimelineIO PROPERTIES
      URL "http://opentimeline.io/"
      PURPOSE "Required for OpenTimelineIO import and export, at least version 0.18.0 is highly recommended")
  

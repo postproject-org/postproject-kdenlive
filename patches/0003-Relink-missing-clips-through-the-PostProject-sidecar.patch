@@ -12,7 +12,7 @@ kdenlive:file_hash is offered as fixed in the relink dialog; anything
 else leaves the clip missing, as before.
 
 diff --git a/src/doc/documentchecker.cpp b/src/doc/documentchecker.cpp
-index ac43ef4b3..956ffc16b 100644
+index f6a6957ce..4732f9ce6 100644
 --- a/src/doc/documentchecker.cpp
 +++ b/src/doc/documentchecker.cpp
 @@ -12,6 +12,10 @@
@@ -50,7 +50,7 @@ index ac43ef4b3..956ffc16b 100644
  DocumentChecker::DocumentChecker(QUrl url, const QDomDocument &doc)
      : m_url(std::move(url))
      , m_doc(doc)
-@@ -987,6 +1008,15 @@ QString DocumentChecker::getMissingProducers(QDomElement &e, const QDomNodeList
+@@ -998,6 +1019,15 @@ QString DocumentChecker::getMissingProducers(QDomElement &e, const QDomNodeList
                  item.newFilePath = relocated;
                  item.status = MissingStatus::Fixed;
              }
@@ -66,7 +66,7 @@ index ac43ef4b3..956ffc16b 100644
              m_items.push_back(item);
          }
      };
-@@ -1070,6 +1100,15 @@ QString DocumentChecker::getMissingProducers(QDomElement &e, const QDomNodeList
+@@ -1081,6 +1111,15 @@ QString DocumentChecker::getMissingProducers(QDomElement &e, const QDomNodeList
                  item.hash = Xml::getXmlProperty(e, QStringLiteral("kdenlive:file_hash"));
                  item.fileSize = Xml::getXmlProperty(e, QStringLiteral("kdenlive:file_size"));
                  // item.mltService = Xml::getXmlProperty(e, QStringLiteral("mlt_service"));
