@@ -71,7 +71,7 @@ index fa23b1019..4eec86075 100644
      const QString timeStamp = info.lastModified().toString(QStringLiteral("yyyy-MM-dd-hh-mm"));
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
 new file mode 100644
-index 000000000..f092eb561
+index 000000000..278652b8b
 --- /dev/null
 +++ b/src/doc/postprojectsidecar.cpp
 @@ -0,0 +1,398 @@
@@ -279,8 +279,8 @@ index 000000000..f092eb561
 +        POSTPROJECT_TRY_ASSIGN(const std::optional<pp::AssetId> assetId, findClipAsset(production, clip.controlUuid));
 +        if (!assetId) {
 +            POSTPROJECT_TRY_ASSIGN(const pp::ImportedMedia imported, transaction.importMedia(utf8(clip.path), utf8(clip.name)));
-+            POSTPROJECT_TRY(
-+                transaction.addExternalIdentifier(pp::ObjectRef::asset(imported.asset_id), {IdentifierScheme, clip.controlUuid, std::string(IdentifierQualifier)}));
++            POSTPROJECT_TRY(transaction.addExternalIdentifier(pp::ObjectRef::asset(imported.asset_id),
++                                                              {IdentifierScheme, clip.controlUuid, std::string(IdentifierQualifier)}));
 +            changed = true;
 +            continue;
 +        }
@@ -344,10 +344,9 @@ index 000000000..f092eb561
 +    const pp::RevisionContext context = revisionContext("Save project");
 +
 +    // New clips must be committed before their resources can take a host hash
-+        for (const auto stage : {&stageClips, &stageKdenliveHashes}) {
++    for (const auto stage : {&stageClips, &stageKdenliveHashes}) {
 +        POSTPROJECT_TRY_ASSIGN(pp::ReadSession view, production.readSession());
-+        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, view.edit());
-+        POSTPROJECT_TRY(transaction.setRevisionContext(context));
++        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, view.edit(context));
 +        // The decisions and the edit base come from the same retained view.
 +        POSTPROJECT_TRY_ASSIGN(const bool changed, stage(view, transaction, clips));
 +        if (changed) {
@@ -417,7 +416,8 @@ index 000000000..f092eb561
 +        }
 +        const pp::ResourceResolution &resource = resolution.resources.front();
 +        const bool located = resource.state() == pp::ResourceResolutionState::online_at_known_locator ||
-+                             resource.state() == pp::ResourceResolutionState::resolved_exact || resource.state() == pp::ResourceResolutionState::resolved_probable;
++                             resource.state() == pp::ResourceResolutionState::resolved_exact ||
++                             resource.state() == pp::ResourceResolutionState::resolved_probable;
 +        if (located && resource.candidates().size() == 1) {
 +            paths.insert(clip->second, pathFor(resource.candidates().front().uri));
 +        }

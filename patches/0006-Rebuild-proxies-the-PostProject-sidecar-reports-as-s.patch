@@ -35,10 +35,10 @@ index 4732f9ce6..01bff3f68 100644
          return resource;
      }
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
-index 3be2a9fff..27080bf13 100644
+index 0ca856d58..9077726f7 100644
 --- a/src/doc/postprojectsidecar.cpp
 +++ b/src/doc/postprojectsidecar.cpp
-@@ -426,6 +426,35 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
+@@ -426,6 +426,34 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
      return paths;
  }
  
@@ -62,8 +62,7 @@ index 3be2a9fff..27080bf13 100644
 +    {
 +        // Evaluation reads only recorded knowledge, and another application may
 +        // have replaced the source. Observing unchanged content records nothing.
-+        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, view.edit());
-+        POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Open project")));
++        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, view.edit(revisionContext("Open project")));
 +        POSTPROJECT_TRY(transaction.observeResourceContent(source->resources.front().id, utf8(sourcePath)));
 +        POSTPROJECT_TRY(transaction.commit());
 +    }
@@ -74,7 +73,7 @@ index 3be2a9fff..27080bf13 100644
  // The end of a render log, within PostProject's bound for a failure diagnostic.
  std::string failureDiagnostic(const QString &log)
  {
-@@ -502,6 +531,20 @@ void PostProjectSidecar::ClipLocator::resolveAll()
+@@ -502,6 +530,20 @@ void PostProjectSidecar::ClipLocator::resolveAll()
      m_located = *std::move(located);
  }
  

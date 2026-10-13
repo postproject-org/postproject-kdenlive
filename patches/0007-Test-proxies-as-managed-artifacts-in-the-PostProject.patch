@@ -12,7 +12,7 @@ the first save, a proxy named after other content, and clips the
 sidecar does not know.
 
 diff --git a/tests/postprojecttest.cpp b/tests/postprojecttest.cpp
-index 7ca2ea9f9..5625ff18f 100644
+index e8c0f7db1..9511ee880 100644
 --- a/tests/postprojecttest.cpp
 +++ b/tests/postprojecttest.cpp
 @@ -98,6 +98,41 @@ DocumentChecker::DocumentResource checkMissingClip(const QString &projectPath, Q
@@ -57,7 +57,7 @@ index 7ca2ea9f9..5625ff18f 100644
  } // namespace
  
  TEST_CASE("PostProject save refuses a truncated representation decision", "[PostProject]")
-@@ -295,3 +330,188 @@ TEST_CASE("Relink missing clips through a PostProject sidecar", "[PostProject]")
+@@ -295,3 +330,189 @@ TEST_CASE("Relink missing clips through a PostProject sidecar", "[PostProject]")
          CHECK(item.status == DocumentChecker::MissingStatus::Missing);
      }
  }
@@ -173,7 +173,8 @@ index 7ca2ea9f9..5625ff18f 100644
 +        REQUIRE(located.size() == 1);
 +        bool latest = false;
 +        for (const auto &job : jobs) {
-+            latest = latest || (std::holds_alternative<postproject::JobCompletion>(job.status) && std::get<postproject::JobCompletion>(job.status).representation_id == located.front());
++            latest = latest || (std::holds_alternative<postproject::JobCompletion>(job.status) &&
++                                std::get<postproject::JobCompletion>(job.status).representation_id == located.front());
 +        }
 +        CHECK(latest);
 +    }

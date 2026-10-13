@@ -5,10 +5,10 @@ Subject: [PATCH 09/10] Exercise the shared production workflow
 
 
 diff --git a/tests/postprojecttest.cpp b/tests/postprojecttest.cpp
-index 298a02bee..ed713b166 100644
+index 3892fa899..5de1d7347 100644
 --- a/tests/postprojecttest.cpp
 +++ b/tests/postprojecttest.cpp
-@@ -344,6 +344,145 @@ TEST_CASE("Select an explicit shared PostProject production", "[PostProject]")
+@@ -344,6 +344,144 @@ TEST_CASE("Select an explicit shared PostProject production", "[PostProject]")
      CHECK(PostProjectSidecar::sidecarPath(projectPath) == projectFolder.filePath(QStringLiteral("film.pproj")));
  }
  
@@ -108,10 +108,9 @@ index 298a02bee..ed713b166 100644
 +        REQUIRE(original != representations.cend());
 +        const QString choice = directory.filePath(QStringLiteral("kdenlive-choice.mkv"));
 +        REQUIRE(QFile::copy(movedPath, choice));
-+        auto transaction = production.edit(base).value();
-+        REQUIRE(transaction
-+                    .setRevisionContext({postproject::OriginIdentity{"Kdenlive", std::string("26.08.2"), std::nullopt}, std::string("Confirm source location")})
-+                    .has_value());
++        auto transaction =
++            production.edit(base, {postproject::OriginIdentity{"Kdenlive", std::string("26.08.2"), std::nullopt}, std::string("Confirm source location")})
++                .value();
 +        REQUIRE(transaction.confirmLocator(original->resources.front().id, postproject::fileLocator(choice.toStdString()).value()).has_value());
 +        const auto committed = transaction.commit();
 +        REQUIRE_FALSE(committed.has_value());

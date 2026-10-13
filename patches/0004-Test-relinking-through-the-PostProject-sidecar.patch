@@ -25,7 +25,7 @@ index e1a7c9bbb..a9fabe7bd 100644
  
 diff --git a/tests/postprojecttest.cpp b/tests/postprojecttest.cpp
 new file mode 100644
-index 000000000..7ca2ea9f9
+index 000000000..e8c0f7db1
 --- /dev/null
 +++ b/tests/postprojecttest.cpp
 @@ -0,0 +1,297 @@
@@ -150,7 +150,7 @@ index 000000000..7ca2ea9f9
 +    REQUIRE(initial.size() == 1);
 +    const auto originalId = initial.front().id;
 +    {
-+        auto transaction = production.beginTransaction().value();
++        auto transaction = production.edit().value();
 +        for (int i = 0; i < 1000; ++i) {
 +            REQUIRE(transaction.addRepresentation(asset, postproject::RepresentationKind::proxy, source.toStdString()));
 +        }

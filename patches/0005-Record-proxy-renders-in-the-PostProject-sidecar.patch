@@ -16,7 +16,7 @@ project saved for the first time, are recorded on save when their name
 carries the clip's present Kdenlive hash.
 
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
-index f092eb561..3be2a9fff 100644
+index 278652b8b..0ca856d58 100644
 --- a/src/doc/postprojectsidecar.cpp
 +++ b/src/doc/postprojectsidecar.cpp
 @@ -11,10 +11,13 @@
@@ -154,12 +154,12 @@ index f092eb561..3be2a9fff 100644
      const pp::RevisionContext context = revisionContext("Save project");
  
      // New clips must be committed before their resources can take a host hash
--        for (const auto stage : {&stageClips, &stageKdenliveHashes}) {
+-    for (const auto stage : {&stageClips, &stageKdenliveHashes}) {
 +    // or their proxies can be recorded.
 +    for (const auto stage : {&stageClips, &stageKdenliveHashes, &stageAdoptedProxies}) {
          POSTPROJECT_TRY_ASSIGN(pp::ReadSession view, production.readSession());
-         POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, view.edit());
-         POSTPROJECT_TRY(transaction.setRevisionContext(context));
+         POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, view.edit(context));
+         // The decisions and the edit base come from the same retained view.
 @@ -348,8 +426,35 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
      return paths;
  }
@@ -196,7 +196,7 @@ index f092eb561..3be2a9fff 100644
  QString PostProjectSidecar::sidecarPath(const QString &projectPath)
  {
      const QFileInfo project(projectPath);
-@@ -396,3 +501,161 @@ void PostProjectSidecar::ClipLocator::resolveAll()
+@@ -396,3 +501,158 @@ void PostProjectSidecar::ClipLocator::resolveAll()
      }
      m_located = *std::move(located);
  }
@@ -224,8 +224,7 @@ index f092eb561..3be2a9fff 100644
 +        std::optional<pp::JobId> jobId;
 +        std::optional<pp::JobLease> lease;
 +        {
-+            POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, view.edit());
-+            POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Create proxy clip")));
++            POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, view.edit(revisionContext("Create proxy clip")));
 +            // The proxy is made from the source as it is now. Observing unchanged
 +            // content records nothing.
 +            POSTPROJECT_TRY(transaction.observeResourceContent(source->resources.front().id, utf8(sourcePath)));
@@ -248,8 +247,7 @@ index f092eb561..3be2a9fff 100644
 +    }
 +    // The render was abandoned, for example cancelled by the user.
 +    const pp::Result<void> cancelled = [&]() -> pp::Result<void> {
-+        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, m_claim->production.beginTransaction());
-+        POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Cancel proxy clip")));
++        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, m_claim->production.edit(revisionContext("Cancel proxy clip")));
 +        POSTPROJECT_TRY(transaction.cancelJob(m_claim->jobId));
 +        POSTPROJECT_TRY(transaction.commit());
 +        return {};
@@ -272,7 +270,7 @@ index f092eb561..3be2a9fff 100644
 +    }
 +    while (!process.waitForFinished(ClaimRenewalMillis) && process.state() != QProcess::NotRunning) {
 +        const pp::Result<void> renewed = [&]() -> pp::Result<void> {
-+            POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, m_claim->production.beginTransaction());
++            POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, m_claim->production.edit());
 +            POSTPROJECT_TRY(transaction.renewJobLease(m_claim->lease, ClaimLease));
 +            POSTPROJECT_TRY(transaction.commit());
 +            return {};
@@ -294,8 +292,7 @@ index f092eb561..3be2a9fff 100644
 +        POSTPROJECT_TRY_ASSIGN(pp::ReadSession view, claim.production.readSession());
 +        POSTPROJECT_TRY_ASSIGN(const auto representations, representationsForClip(view, claim.assetId));
 +        const std::int64_t now = nowMicros();
-+        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, view.edit());
-+        POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Create proxy clip")));
++        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, view.edit(revisionContext("Create proxy clip")));
 +        // A proxy rendered over an older one: the older proxy's content is gone.
 +        for (const pp::Representation &representation : representations) {
 +            if (representation.kind != pp::RepresentationKind::proxy) {
@@ -309,7 +306,8 @@ index f092eb561..3be2a9fff 100644
 +                }
 +            }
 +        }
-+        POSTPROJECT_TRY_ASSIGN(const pp::RepresentationId proxyId, transaction.addRepresentation(claim.assetId, pp::RepresentationKind::proxy, utf8(proxyPath)));
++        POSTPROJECT_TRY_ASSIGN(const pp::RepresentationId proxyId,
++                               transaction.addRepresentation(claim.assetId, pp::RepresentationKind::proxy, utf8(proxyPath)));
 +        pp::ActivitySpec activity;
 +        activity.kind = ProxyJobKind;
 +        activity.started_at_unix_micros = claim.startedAt;
@@ -345,8 +343,7 @@ index f092eb561..3be2a9fff 100644
 +        return;
 +    }
 +    const pp::Result<void> failed = [&]() -> pp::Result<void> {
-+        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, m_claim->production.beginTransaction());
-+        POSTPROJECT_TRY(transaction.setRevisionContext(revisionContext("Create proxy clip")));
++        POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, m_claim->production.edit(revisionContext("Create proxy clip")));
 +        POSTPROJECT_TRY(transaction.failJobLease(m_claim->lease, failureDiagnostic(diagnostic)));
 +        POSTPROJECT_TRY(transaction.commit());
 +        return {};
