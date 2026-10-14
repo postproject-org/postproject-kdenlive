@@ -1,7 +1,7 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From cd3df4d944bb770634d9b074951ecdd8ac0e0897 Mon Sep 17 00:00:00 2001
 From: Erich Seifert <dev@erichseifert.de>
 Date: Mon, 28 Sep 2026 09:08:28 +0200
-Subject: [PATCH 05/10] Record proxy renders in the PostProject sidecar
+Subject: [PATCH] Record proxy renders in the PostProject sidecar
 
 When a proxy is rendered for a clip the sidecar knows, request a proxy
 job and claim it with Kdenlive as the worker, renewing the claim while
@@ -14,12 +14,17 @@ one cancels it.
 Proxies made before their clip was recorded, such as those of a
 project saved for the first time, are recorded on save when their name
 carries the clip's present Kdenlive hash.
+---
+ src/doc/postprojectsidecar.cpp | 262 ++++++++++++++++++++++++++++++++-
+ src/doc/postprojectsidecar.h   |  34 +++++
+ src/jobs/proxytask.cpp         |  36 +++++
+ 3 files changed, 330 insertions(+), 2 deletions(-)
 
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
-index 278652b8b..fbd5177da 100644
+index 694ba53..35c444e 100644
 --- a/src/doc/postprojectsidecar.cpp
 +++ b/src/doc/postprojectsidecar.cpp
-@@ -11,10 +11,13 @@
+@@ -11,11 +11,14 @@
  #include "xml/xml.hpp"
  #include <config-kdenlive.h>
  
@@ -29,11 +34,12 @@ index 278652b8b..fbd5177da 100644
  #include <QFileInfo>
 +#include <QProcess>
  
+ #include <algorithm>
 +#include <chrono>
  #include <cstdint>
  #include <map>
  #include <optional>
-@@ -39,12 +42,22 @@ constexpr const char *IdentifierQualifier = "org.kde.kdenlive:control_uuid";
+@@ -40,12 +43,22 @@ constexpr const char *IdentifierQualifier = "org.kde.kdenlive:control_uuid";
  // fingerprint next to PostProject's. PostProject stores it but never computes it.
  constexpr const char *KdenliveHashAlgorithm = "kdenlive-file-hash";
  constexpr std::uint16_t KdenliveHashVersion = 1;
@@ -56,7 +62,7 @@ index 278652b8b..fbd5177da 100644
  };
  
  std::string utf8(const QString &value)
-@@ -74,6 +87,16 @@ bool isInside(const QString &path, const QString &directory)
+@@ -75,6 +88,16 @@ bool isInside(const QString &path, const QString &directory)
      return path == directory || path.startsWith(directory + QLatin1Char('/'));
  }
  
@@ -73,7 +79,7 @@ index 278652b8b..fbd5177da 100644
  void logFailure(const QString &sidecar, const char *action, const pp::Error &error)
  {
      qCWarning(KDENLIVE_LOG) << "PostProject sidecar" << sidecar << action << ":" << fromUtf8(error.message());
-@@ -134,7 +157,11 @@ std::vector<BinClip> fileBackedBinClips(const QString &projectPath, const QDomDo
+@@ -135,7 +158,11 @@ std::vector<BinClip> fileBackedBinClips(const QString &projectPath, const QDomDo
                  name = file.fileName();
              }
              const QByteArray hash = QByteArray::fromHex(Xml::getXmlProperty(element, QStringLiteral("kdenlive:file_hash")).toLatin1());
@@ -86,7 +92,7 @@ index 278652b8b..fbd5177da 100644
          }
      }
      return clips;
-@@ -179,6 +206,22 @@ template <typename Reader> pp::Result<std::optional<pp::Representation>> clipRep
+@@ -184,6 +211,22 @@ template <typename Reader> pp::Result<std::optional<pp::Representation>> clipRep
      return clipRepresentation(std::move(representations));
  }
  
@@ -109,7 +115,7 @@ index 278652b8b..fbd5177da 100644
  pp::RevisionContext revisionContext(const char *summary)
  {
      return {pp::OriginIdentity{"Kdenlive", std::string(KDENLIVE_VERSION), std::nullopt}, std::string(summary)};
-@@ -259,6 +302,38 @@ pp::Result<bool> stageKdenliveHashes(const pp::ReadSession &production, pp::Tran
+@@ -264,6 +307,38 @@ pp::Result<bool> stageKdenliveHashes(const pp::ReadSession &production, pp::Tran
      return changed;
  }
  
@@ -148,7 +154,7 @@ index 278652b8b..fbd5177da 100644
  pp::Result<void> recordClips(const QString &sidecar, const QString &projectPath, const std::vector<BinClip> &clips)
  {
      POSTPROJECT_TRY_ASSIGN(pp::Production production, QFileInfo::exists(sidecar)
-@@ -267,7 +342,8 @@ pp::Result<void> recordClips(const QString &sidecar, const QString &projectPath,
+@@ -272,7 +347,8 @@ pp::Result<void> recordClips(const QString &sidecar, const QString &projectPath,
      const pp::RevisionContext context = revisionContext("Save project");
  
      // New clips must be committed before their resources can take a host hash
@@ -158,7 +164,7 @@ index 278652b8b..fbd5177da 100644
          POSTPROJECT_TRY_ASSIGN(pp::ReadSession view, production.readSession());
          POSTPROJECT_TRY_ASSIGN(pp::Transaction transaction, view.edit(context));
          // The decisions and the edit base come from the same retained view.
-@@ -348,8 +424,35 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
+@@ -371,8 +447,35 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
      return paths;
  }
  
@@ -194,7 +200,7 @@ index 278652b8b..fbd5177da 100644
  QString PostProjectSidecar::sidecarPath(const QString &projectPath)
  {
      const QFileInfo project(projectPath);
-@@ -396,3 +499,158 @@ void PostProjectSidecar::ClipLocator::resolveAll()
+@@ -419,3 +522,158 @@ void PostProjectSidecar::ClipLocator::resolveAll()
      }
      m_located = *std::move(located);
  }
@@ -354,7 +360,7 @@ index 278652b8b..fbd5177da 100644
 +    }
 +}
 diff --git a/src/doc/postprojectsidecar.h b/src/doc/postprojectsidecar.h
-index 5bc63d8de..ebae6ee73 100644
+index 5bc63d8..ebae6ee 100644
 --- a/src/doc/postprojectsidecar.h
 +++ b/src/doc/postprojectsidecar.h
 @@ -48,6 +48,40 @@ QString sidecarPath(const QString &projectPath);
@@ -399,7 +405,7 @@ index 5bc63d8de..ebae6ee73 100644
   * @brief Locates missing bin clips of one opened project by content.
   *
 diff --git a/src/jobs/proxytask.cpp b/src/jobs/proxytask.cpp
-index 477a336fa..4d07a64cf 100644
+index 477a336..4d07a64 100644
 --- a/src/jobs/proxytask.cpp
 +++ b/src/jobs/proxytask.cpp
 @@ -12,6 +12,10 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
