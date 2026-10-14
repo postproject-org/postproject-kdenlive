@@ -5,6 +5,8 @@ into [Kdenlive](https://kdenlive.org). When a project opens and a clip is
 missing because it was renamed or moved, Kdenlive asks PostProject to find it
 by content. It offers the file in its usual relink dialog after complete content
 verification, and only when Kdenlive's own clip hash agrees with that file.
+For larger files with sampled fingerprints, an explicit host policy requires
+both the sampled match and Kdenlive's clip hash; it does not claim a full hash.
 In every other case the dialog behaves as before. Kdenlive also records each
 proxy it renders as derived from its clip. A proxy whose source was replaced is
 rebuilt when the project opens, where Kdenlive would keep playing it.
@@ -18,7 +20,7 @@ This is not a KDE project, and nothing here has been proposed to or reviewed by
 the Kdenlive maintainers.
 
 The current target is Kdenlive 26.08.2 with matching PostProject 0.9 headers
-and library (ABI 57). Recovery rejects multiple originals, partial verification
+and library (ABI 57). Recovery rejects multiple originals, unverified candidates
 and incomplete searches. Earlier qualification remains scoped to its recorded
 SDK and patch revisions.
 

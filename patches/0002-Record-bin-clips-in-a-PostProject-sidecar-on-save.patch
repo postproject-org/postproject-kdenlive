@@ -1,4 +1,4 @@
-From b5c0353ab9b8069e929dadbd731a573bd4ec0fac Mon Sep 17 00:00:00 2001
+From 04e46c32aaec6ac1b1d3f5e5d8107d85aae18435 Mon Sep 17 00:00:00 2001
 From: Erich Seifert <dev@erichseifert.de>
 Date: Sun, 27 Sep 2026 14:34:33 +0200
 Subject: [PATCH] Record bin clips in a PostProject sidecar on save
@@ -17,9 +17,9 @@ adapter builds with Kdenlive's default -fno-exceptions.
  src/CMakeLists.txt             |   4 +
  src/doc/CMakeLists.txt         |   7 +-
  src/doc/kdenlivedoc.cpp        |   6 +
- src/doc/postprojectsidecar.cpp | 400 +++++++++++++++++++++++++++++++++
- src/doc/postprojectsidecar.h   |  77 +++++++
- 5 files changed, 492 insertions(+), 2 deletions(-)
+ src/doc/postprojectsidecar.cpp | 421 +++++++++++++++++++++++++++++++++
+ src/doc/postprojectsidecar.h   |  77 ++++++
+ 5 files changed, 513 insertions(+), 2 deletions(-)
  create mode 100644 src/doc/postprojectsidecar.cpp
  create mode 100644 src/doc/postprojectsidecar.h
 
@@ -80,10 +80,10 @@ index fa23b10..4eec860 100644
      const QString timeStamp = info.lastModified().toString(QStringLiteral("yyyy-MM-dd-hh-mm"));
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
 new file mode 100644
-index 0000000..bcb9300
+index 0000000..694ba53
 --- /dev/null
 +++ b/src/doc/postprojectsidecar.cpp
-@@ -0,0 +1,400 @@
+@@ -0,0 +1,421 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 Erich Seifert <dev@erichseifert.de>
 +
@@ -101,6 +101,7 @@ index 0000000..bcb9300
 +#include <QDomDocument>
 +#include <QFileInfo>
 +
++#include <algorithm>
 +#include <cstdint>
 +#include <map>
 +#include <optional>
@@ -431,6 +432,26 @@ index 0000000..bcb9300
 +        const auto selected = resolution.selectVerified();
 +        if (selected.has_value() && selected->locations.size() == 1) {
 +            paths.insert(clip->second, pathFor(selected->locations.front().candidate.uri));
++            continue;
++        }
++        // Large files use sampled PostProject fingerprints. Kdenlive's caller
++        // additionally checks its own clip hash before offering this path.
++        // This host policy is distinct from complete-content verification.
++        const auto &resource = resolution.resources.front();
++        if (resolution.availability != pp::RepresentationAvailability::online || resource.candidates().size() != 1) {
++            continue;
++        }
++        const auto blocked = [](const auto &evidence) {
++            return evidence.kind == pp::EvidenceKind::search_truncated || evidence.kind == pp::EvidenceKind::discovery_error ||
++                   evidence.kind == pp::EvidenceKind::fingerprint_not_verified || evidence.kind == pp::EvidenceKind::fingerprint_mismatch ||
++                   evidence.kind == pp::EvidenceKind::conflicting_candidate;
++        };
++        const auto &candidate = resource.candidates().front();
++        const bool sampled = std::any_of(candidate.evidence.begin(), candidate.evidence.end(),
++                                         [](const auto &evidence) { return evidence.kind == pp::EvidenceKind::partial_fingerprint_match; });
++        if (sampled && !std::any_of(resource.evidence().begin(), resource.evidence().end(), blocked) &&
++            !std::any_of(candidate.evidence.begin(), candidate.evidence.end(), blocked)) {
++            paths.insert(clip->second, pathFor(candidate.uri));
 +        }
 +    }
 +    return paths;
