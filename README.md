@@ -3,8 +3,8 @@
 An experimental, maintained integration of [PostProject](https://postproject.org)
 into [Kdenlive](https://kdenlive.org). When a project opens and a clip is
 missing because it was renamed or moved, Kdenlive asks PostProject to find it
-by content. It offers the file in its usual relink dialog only when exactly one
-file matches, and only when Kdenlive's own clip hash agrees with that file.
+by content. It offers the file in its usual relink dialog after complete content
+verification, and only when Kdenlive's own clip hash agrees with that file.
 In every other case the dialog behaves as before. Kdenlive also records each
 proxy it renders as derived from its clip. A proxy whose source was replaced is
 rebuilt when the project opens, where Kdenlive would keep playing it.
@@ -17,9 +17,10 @@ pilot taught PostProject is recorded in PostProject's
 This is not a KDE project, and nothing here has been proposed to or reviewed by
 the Kdenlive maintainers.
 
-The current target is Kdenlive 26.08.2. All ten patches, complete Linux builds
-with/without SDK 0.9, document/pilot tests and the Blender/Manager handoff pass.
-The earlier 26.08.1 qualification is retained.
+The current target is Kdenlive 26.08.2 with matching PostProject 0.9 headers
+and library (ABI 57). Recovery rejects multiple originals, partial verification
+and incomplete searches. Earlier qualification remains scoped to its recorded
+SDK and patch revisions.
 
 ## What changes
 

@@ -1,7 +1,7 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From b5c0353ab9b8069e929dadbd731a573bd4ec0fac Mon Sep 17 00:00:00 2001
 From: Erich Seifert <dev@erichseifert.de>
 Date: Sun, 27 Sep 2026 14:34:33 +0200
-Subject: [PATCH 02/10] Record bin clips in a PostProject sidecar on save
+Subject: [PATCH] Record bin clips in a PostProject sidecar on save
 
 Saving film.kdenlive records each file-backed bin clip in film.pproj:
 an imported asset with PostProject's content fingerprint, keyed by
@@ -13,9 +13,18 @@ not changed, and failures are only logged.
 
 The PostProject C++ wrapper returns results instead of throwing, so the
 adapter builds with Kdenlive's default -fno-exceptions.
+---
+ src/CMakeLists.txt             |   4 +
+ src/doc/CMakeLists.txt         |   7 +-
+ src/doc/kdenlivedoc.cpp        |   6 +
+ src/doc/postprojectsidecar.cpp | 400 +++++++++++++++++++++++++++++++++
+ src/doc/postprojectsidecar.h   |  77 +++++++
+ 5 files changed, 492 insertions(+), 2 deletions(-)
+ create mode 100644 src/doc/postprojectsidecar.cpp
+ create mode 100644 src/doc/postprojectsidecar.h
 
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 31d77ec76..664870728 100644
+index 31d77ec..6648707 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
 @@ -303,6 +303,10 @@ target_link_libraries(kdenliveLib PUBLIC KDAB::kddockwidgets)
@@ -30,7 +39,7 @@ index 31d77ec76..664870728 100644
      target_link_libraries(kdenliveLib PUBLIC d3d11 d3dcompiler)
  endif()
 diff --git a/src/doc/CMakeLists.txt b/src/doc/CMakeLists.txt
-index a3ccc7e7b..ddd4d3307 100644
+index a3ccc7e..ddd4d33 100644
 --- a/src/doc/CMakeLists.txt
 +++ b/src/doc/CMakeLists.txt
 @@ -9,6 +9,9 @@ set(kdenlive_SRCS
@@ -46,7 +55,7 @@ index a3ccc7e7b..ddd4d3307 100644
 +set(kdenlive_SRCS ${kdenlive_SRCS} PARENT_SCOPE)
  
 diff --git a/src/doc/kdenlivedoc.cpp b/src/doc/kdenlivedoc.cpp
-index fa23b1019..4eec86075 100644
+index fa23b10..4eec860 100644
 --- a/src/doc/kdenlivedoc.cpp
 +++ b/src/doc/kdenlivedoc.cpp
 @@ -34,6 +34,9 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
@@ -71,10 +80,10 @@ index fa23b1019..4eec86075 100644
      const QString timeStamp = info.lastModified().toString(QStringLiteral("yyyy-MM-dd-hh-mm"));
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
 new file mode 100644
-index 000000000..278652b8b
+index 0000000..bcb9300
 --- /dev/null
 +++ b/src/doc/postprojectsidecar.cpp
-@@ -0,0 +1,398 @@
+@@ -0,0 +1,400 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 Erich Seifert <dev@erichseifert.de>
 +
@@ -232,13 +241,17 @@ index 000000000..278652b8b
 +// The clip's file: the original single-file representation created by import.
 +std::optional<pp::Representation> clipRepresentation(std::vector<pp::Representation> representations)
 +{
++    std::optional<pp::Representation> selected;
 +    for (pp::Representation &representation : representations) {
 +        if (representation.kind == pp::RepresentationKind::original && representation.structureKind() == pp::ContentStructureKind::single_resource &&
 +            representation.resources.size() == 1) {
-+            return std::move(representation);
++            if (selected) {
++                return std::nullopt; // Several originals need an explicit host choice.
++            }
++            selected = std::move(representation);
 +        }
 +    }
-+    return std::nullopt;
++    return selected;
 +}
 +
 +template <typename Reader> pp::Result<std::vector<pp::Representation>> representationsForClip(const Reader &production, const pp::AssetId &assetId)
@@ -401,6 +414,7 @@ index 000000000..278652b8b
 +    }
 +
 +    pp::ResolutionConfig config;
++    config.verification = pp::VerificationMode::content;
 +    config.search_directories = {utf8(projectFolder)};
 +    for (const QString &folder : folders) {
 +        config.search_directories.emplace_back(utf8(folder));
@@ -414,12 +428,9 @@ index 000000000..278652b8b
 +        if (clip == clipFor.end() || resolution.resources.size() != 1) {
 +            continue;
 +        }
-+        const pp::ResourceResolution &resource = resolution.resources.front();
-+        const bool located = resource.state() == pp::ResourceResolutionState::online_at_known_locator ||
-+                             resource.state() == pp::ResourceResolutionState::resolved_exact ||
-+                             resource.state() == pp::ResourceResolutionState::resolved_probable;
-+        if (located && resource.candidates().size() == 1) {
-+            paths.insert(clip->second, pathFor(resource.candidates().front().uri));
++        const auto selected = resolution.selectVerified();
++        if (selected.has_value() && selected->locations.size() == 1) {
++            paths.insert(clip->second, pathFor(selected->locations.front().candidate.uri));
 +        }
 +    }
 +    return paths;
@@ -475,7 +486,7 @@ index 000000000..278652b8b
 +}
 diff --git a/src/doc/postprojectsidecar.h b/src/doc/postprojectsidecar.h
 new file mode 100644
-index 000000000..5bc63d8de
+index 0000000..5bc63d8
 --- /dev/null
 +++ b/src/doc/postprojectsidecar.h
 @@ -0,0 +1,77 @@
