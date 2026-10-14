@@ -5,7 +5,7 @@ Subject: [PATCH 08/10] Select an explicit PostProject production
 
 
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
-index 9077726f7..7f88e2dc7 100644
+index f39835fad..b1d70d57c 100644
 --- a/src/doc/postprojectsidecar.cpp
 +++ b/src/doc/postprojectsidecar.cpp
 @@ -11,6 +11,7 @@
@@ -16,7 +16,7 @@ index 9077726f7..7f88e2dc7 100644
  #include <QDateTime>
  #include <QDir>
  #include <QDomDocument>
-@@ -485,6 +486,12 @@ struct PostProjectSidecar::ProxyJob::Claim
+@@ -483,6 +484,12 @@ struct PostProjectSidecar::ProxyJob::Claim
  
  QString PostProjectSidecar::sidecarPath(const QString &projectPath)
  {

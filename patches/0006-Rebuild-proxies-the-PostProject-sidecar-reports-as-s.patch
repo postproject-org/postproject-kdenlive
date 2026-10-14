@@ -35,10 +35,10 @@ index 4732f9ce6..01bff3f68 100644
          return resource;
      }
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
-index 0ca856d58..9077726f7 100644
+index fbd5177da..f39835fad 100644
 --- a/src/doc/postprojectsidecar.cpp
 +++ b/src/doc/postprojectsidecar.cpp
-@@ -426,6 +426,34 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
+@@ -424,6 +424,34 @@ pp::Result<QHash<QString, QString>> locateClips(const QString &sidecar, const QS
      return paths;
  }
  
@@ -73,7 +73,7 @@ index 0ca856d58..9077726f7 100644
  // The end of a render log, within PostProject's bound for a failure diagnostic.
  std::string failureDiagnostic(const QString &log)
  {
-@@ -502,6 +530,20 @@ void PostProjectSidecar::ClipLocator::resolveAll()
+@@ -500,6 +528,20 @@ void PostProjectSidecar::ClipLocator::resolveAll()
      m_located = *std::move(located);
  }
  
