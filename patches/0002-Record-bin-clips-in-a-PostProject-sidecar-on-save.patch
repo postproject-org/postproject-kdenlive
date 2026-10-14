@@ -1,4 +1,4 @@
-From 04e46c32aaec6ac1b1d3f5e5d8107d85aae18435 Mon Sep 17 00:00:00 2001
+From 000f0b4cc8690f9046d117be9af0fb1afa012cb2 Mon Sep 17 00:00:00 2001
 From: Erich Seifert <dev@erichseifert.de>
 Date: Sun, 27 Sep 2026 14:34:33 +0200
 Subject: [PATCH] Record bin clips in a PostProject sidecar on save
@@ -80,7 +80,7 @@ index fa23b10..4eec860 100644
      const QString timeStamp = info.lastModified().toString(QStringLiteral("yyyy-MM-dd-hh-mm"));
 diff --git a/src/doc/postprojectsidecar.cpp b/src/doc/postprojectsidecar.cpp
 new file mode 100644
-index 0000000..694ba53
+index 0000000..4faf553
 --- /dev/null
 +++ b/src/doc/postprojectsidecar.cpp
 @@ -0,0 +1,421 @@
@@ -449,7 +449,7 @@ index 0000000..694ba53
 +        const auto &candidate = resource.candidates().front();
 +        const bool sampled = std::any_of(candidate.evidence.begin(), candidate.evidence.end(),
 +                                         [](const auto &evidence) { return evidence.kind == pp::EvidenceKind::partial_fingerprint_match; });
-+        if (sampled && !std::any_of(resource.evidence().begin(), resource.evidence().end(), blocked) &&
++        if (sampled && !std::any_of(resource.evidence.begin(), resource.evidence.end(), blocked) &&
 +            !std::any_of(candidate.evidence.begin(), candidate.evidence.end(), blocked)) {
 +            paths.insert(clip->second, pathFor(candidate.uri));
 +        }
